@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+{% block title %}Recherche : {{ q }} — AubeVideo{% endblock %}
+{% block content %}
+
+<h1 class="search-head">Résultats pour « {{ q }} »</h1>
+
+{% if not q %}
+  <p>Saisissez un terme dans la barre de recherche.</p>
+{% else %}
+  {% if channels %}
+    <section>
+      <h2 class="section-h">Chaînes</h2>
+      <div class="channel-results">
+        {% for c in channels %}
+          <a href="{{ url_for('channel', username=c.username) }}" class="channel-result">
+            <img src="{{ url_for('avatar', username=c.username) }}" alt="">
+            <div>
+              <div class="cr-name">{{ c.display_name }}</div>
+              <div class="cr-sub">@{{ c.username }} • {{ c.subscriber_count|count }} abonné{{ 's' if c.subscriber_count != 1 else '' }}</div>
+              {% if c.bio %}<div class="cr-bio">{{ c.bio[:140] }}</div>{% endif %}
+            </div>
+          </a>
+        {% endfor %}
+      </div>
+    </section>
+  {% endif %}
+
+  <h2 class="section-h">Vidéos</h2>
+  {% if videos %}
+    <div class="search-list">
+      {% for v in videos %}
+        <a href="{{ url_for('watch', video_id=v.id) }}" class="search-item">
+          <div class="si-thumb">
+            <img src="{{ url_for('thumbnail', video_id=v.id) }}" alt="" loading="lazy">
+            {% if v.duration %}<span class="duration">{{ v.duration|duration }}</span>{% endif %}
+          </div>
+          <div class="si-body">
+            <div class="si-title">{{ v.title }}</div>
+            <div class="si-stats">{{ v.views|count }} vues • {{ v.created_at|timeago }}</div>
+            <div class="si-channel">
+              <img src="{{ url_for('avatar', username=v.username) }}" alt="">
+              <span>{{ v.display_name }}</span>
+            </div>
+            <div class="si-desc">{{ (v.description or '')[:200] }}</div>
+          </div>
+        </a>
+      {% endfor %}
+    </div>
+  {% else %}
+    <p class="empty">Aucune vidéo ne correspond.</p>
+  {% endif %}
+{% endif %}
+
+{% endblock %}

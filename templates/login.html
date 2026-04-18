@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+{% block title %}Connexion — AubeVideo{% endblock %}
+{% block content %}
+
+<div class="auth-card">
+  <img src="{{ url_for('static', filename='img/logo.svg') }}" alt="" class="auth-logo">
+  <h1>Connexion à AubeVideo</h1>
+  <p class="auth-sub">Utilisez vos identifiants de L'Aube Étoilée (SSO partagé).</p>
+
+  <form method="post" class="auth-form">
+    <label class="field">
+      <span>Nom d'utilisateur</span>
+      <input type="text" name="username" autofocus required autocomplete="username">
+    </label>
+    <label class="field">
+      <span>Mot de passe</span>
+      <input type="password" name="password" required autocomplete="current-password">
+    </label>
+    <button type="submit" class="btn btn-primary btn-lg btn-block">Se connecter</button>
+  </form>
+
+  <div class="auth-foot">
+    <a href="https://aubeetoilee.com/creer-compte" target="_blank">Créer un compte L'Aube Étoilée</a>
+  </div>
+</div>
+
+{% endblock %}

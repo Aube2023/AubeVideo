@@ -1,0 +1,49 @@
+{% extends "base.html" %}
+{% block title %}{{ title or "Accueil" }} — AubeVideo{% endblock %}
+{% block content %}
+
+<div class="chips">
+  <a href="{{ url_for('home') }}" class="chip {% if active_category=='Toutes' %}active{% endif %}">Toutes</a>
+  {% for cat in CATEGORIES %}
+    <a href="{{ url_for('home', c=cat) }}" class="chip {% if active_category==cat %}active{% endif %}">{{ cat }}</a>
+  {% endfor %}
+</div>
+
+{% if videos %}
+  <div class="video-grid">
+    {% for v in videos %}
+      <article class="video-card">
+        <a href="{{ url_for('watch', video_id=v.id) }}" class="thumb-wrap">
+          <img class="thumb" src="{{ url_for('thumbnail', video_id=v.id) }}" alt="{{ v.title }}" loading="lazy">
+          {% if v.duration %}<span class="duration">{{ v.duration|duration }}</span>{% endif %}
+        </a>
+        <div class="card-body">
+          <a href="{{ url_for('channel', username=v.username) }}" class="channel-pic">
+            <img src="{{ url_for('avatar', username=v.username) }}" alt="{{ v.display_name }}">
+          </a>
+          <div class="meta">
+            <a href="{{ url_for('watch', video_id=v.id) }}" class="card-title">{{ v.title }}</a>
+            <a href="{{ url_for('channel', username=v.username) }}" class="card-channel">{{ v.display_name }}</a>
+            <div class="card-stats">
+              <span>{{ v.views|count }} vues</span>
+              <span>•</span>
+              <span>{{ v.created_at|timeago }}</span>
+            </div>
+          </div>
+        </div>
+      </article>
+    {% endfor %}
+  </div>
+{% else %}
+  <div class="empty-state">
+    <h2>Aucune vidéo à afficher</h2>
+    <p>Soyez le premier à partager du contenu sur AubeVideo.</p>
+    {% if current_user %}
+      <a href="{{ url_for('upload') }}" class="btn btn-primary">Mettre en ligne une vidéo</a>
+    {% else %}
+      <a href="{{ url_for('login') }}" class="btn btn-primary">Se connecter</a>
+    {% endif %}
+  </div>
+{% endif %}
+
+{% endblock %}

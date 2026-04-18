@@ -1,0 +1,85 @@
+{% extends "base.html" %}
+{% block title %}Mettre en ligne — AubeVideo{% endblock %}
+{% block content %}
+
+<div class="container-narrow">
+  <h1>Mettre en ligne une vidéo</h1>
+  <p class="subtitle">Partagez votre création avec la communauté L'Aube Étoilée.</p>
+
+  <form method="post" enctype="multipart/form-data" class="upload-form">
+    <div class="dropzone" id="dropzone">
+      <input type="file" name="video" id="videoFile" accept="video/*" required>
+      <div class="dz-placeholder">
+        <svg viewBox="0 0 24 24" width="64" height="64"><path fill="currentColor" d="M19.35 10.04A7.49 7.49 0 0 0 12 4C9.11 4 6.6 5.64 5.35 8.04A5.994 5.994 0 0 0 0 14c0 3.31 2.69 6 6 6h13c2.76 0 5-2.24 5-5 0-2.64-2.05-4.78-4.65-4.96zM14 13v4h-4v-4H7l5-5 5 5h-3z"/></svg>
+        <div class="dz-title">Glissez-déposez votre fichier vidéo</div>
+        <div class="dz-hint">ou cliquez pour parcourir (MP4, WebM, MOV, MKV — max 2 Go)</div>
+        <div id="selectedFile" class="dz-selected"></div>
+      </div>
+    </div>
+
+    <div class="form-grid">
+      <label class="field">
+        <span>Titre *</span>
+        <input type="text" name="title" maxlength="255" required placeholder="Titre accrocheur de votre vidéo">
+      </label>
+
+      <label class="field">
+        <span>Description</span>
+        <textarea name="description" rows="5" placeholder="Présentez votre vidéo, ajoutez des liens, des crédits..."></textarea>
+      </label>
+
+      <label class="field">
+        <span>Miniature (optionnelle)</span>
+        <input type="file" name="thumbnail" accept="image/*">
+        <small>Formats : JPG, PNG, WebP. Idéal 1280×720.</small>
+      </label>
+
+      <div class="field-row">
+        <label class="field">
+          <span>Catégorie</span>
+          <select name="category">
+            {% for cat in CATEGORIES %}
+              <option value="{{ cat }}">{{ cat }}</option>
+            {% endfor %}
+          </select>
+        </label>
+
+        <label class="field">
+          <span>Visibilité</span>
+          <select name="visibility">
+            <option value="public">🌍 Publique</option>
+            <option value="unlisted">🔗 Non répertoriée</option>
+            <option value="private">🔒 Privée</option>
+          </select>
+        </label>
+      </div>
+
+      <label class="field">
+        <span>Tags (séparés par des virgules)</span>
+        <input type="text" name="tags" placeholder="musique, live, acoustique">
+      </label>
+    </div>
+
+    <div class="form-actions">
+      <a href="{{ url_for('home') }}" class="btn-ghost">Annuler</a>
+      <button type="submit" class="btn btn-primary btn-lg">Publier la vidéo</button>
+    </div>
+  </form>
+</div>
+
+<script>
+const fileInput = document.getElementById('videoFile');
+const dz = document.getElementById('dropzone');
+const selected = document.getElementById('selectedFile');
+fileInput.addEventListener('change', () => {
+  if (fileInput.files[0]) {
+    const f = fileInput.files[0];
+    selected.textContent = `${f.name} (${(f.size/1024/1024).toFixed(1)} Mo)`;
+    dz.classList.add('has-file');
+  }
+});
+['dragover','dragenter'].forEach(e => dz.addEventListener(e, ev => { ev.preventDefault(); dz.classList.add('hover'); }));
+['dragleave','drop'].forEach(e => dz.addEventListener(e, ev => { ev.preventDefault(); dz.classList.remove('hover'); }));
+dz.addEventListener('drop', e => { if (e.dataTransfer.files[0]) { fileInput.files = e.dataTransfer.files; fileInput.dispatchEvent(new Event('change')); } });
+</script>
+{% endblock %}

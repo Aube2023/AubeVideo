@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{% block title %}AubeVideo — L'Aube Étoilée{% endblock %}</title>
+  <link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='img/logo.svg') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+  {% block head %}{% endblock %}
+</head>
+<body>
+
+<header class="topbar">
+  <div class="topbar-left">
+    <button class="icon-btn menu-toggle" aria-label="Menu" onclick="toggleSidebar()">
+      <svg viewBox="0 0 24 24" width="24" height="24"><path fill="currentColor" d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </button>
+    <a href="{{ url_for('home') }}" class="brand">
+      <img src="{{ url_for('static', filename='img/logo.svg') }}" alt="AubeVideo" class="brand-logo">
+      <span class="brand-text">Aube<span class="brand-accent">Video</span></span>
+    </a>
+  </div>
+
+  <form class="search-bar" action="{{ url_for('search') }}" method="get">
+    <input type="search" name="q" placeholder="Rechercher une vidéo, une chaîne..." value="{{ request.args.get('q','') }}" autocomplete="off">
+    <button type="submit" aria-label="Rechercher">
+      <svg viewBox="0 0 24 24" width="22" height="22"><path fill="currentColor" d="M15.5 14h-.79l-.28-.27a6.5 6.5 0 1 0-.7.7l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0A4.5 4.5 0 1 1 14 9.5 4.5 4.5 0 0 1 9.5 14z"/></svg>
+    </button>
+  </form>
+
+  <div class="topbar-right">
+    {% if current_user %}
+      <a href="{{ url_for('upload') }}" class="btn-upload" title="Mettre en ligne">
+        <svg viewBox="0 0 24 24" width="22" height="22"><path fill="currentColor" d="M14 13h-3v3H9v-3H6v-2h3V8h2v3h3v2zm-1-9H5.5C4.12 4 3 5.12 3 6.5v11C3 18.88 4.12 20 5.5 20h13c1.38 0 2.5-1.12 2.5-2.5V9l-8-5z"/></svg>
+        <span>Créer</span>
+      </a>
+      <a href="{{ url_for('studio') }}" class="icon-btn" title="Studio">
+        <svg viewBox="0 0 24 24" width="22" height="22"><path fill="currentColor" d="M17 10.5V7a1 1 0 0 0-1-1H4a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-3.5l4 4v-11z"/></svg>
+      </a>
+      <div class="user-menu">
+        <button class="avatar-btn" onclick="toggleUserMenu()">
+          <img src="{{ url_for('avatar', username=current_user.username) }}" alt="{{ current_user.display_name }}">
+        </button>
+        <div class="user-dropdown" id="userDropdown">
+          <div class="user-info">
+            <img src="{{ url_for('avatar', username=current_user.username) }}" alt="">
+            <div>
+              <div class="name">{{ current_user.display_name }}</div>
+              <a href="{{ url_for('channel', username=current_user.username) }}">Voir ma chaîne</a>
+            </div>
+          </div>
+          <hr>
+          <a href="{{ url_for('studio') }}">🎬 Studio AubeVideo</a>
+          <a href="{{ url_for('settings') }}">⚙️ Paramètres</a>
+          <a href="{{ url_for('history') }}">🕒 Historique</a>
+          <hr>
+          <a href="{{ url_for('logout') }}">🚪 Déconnexion</a>
+        </div>
+      </div>
+    {% else %}
+      <a href="{{ url_for('login') }}" class="btn-login">
+        <svg viewBox="0 0 24 24" width="18" height="18"><path fill="currentColor" d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/></svg>
+        <span>Se connecter</span>
+      </a>
+    {% endif %}
+  </div>
+</header>
+
+<aside class="sidebar" id="sidebar">
+  <nav>
+    <a href="{{ url_for('home') }}" class="nav-item {% if request.endpoint=='home' %}active{% endif %}">
+      <svg viewBox="0 0 24 24" width="22" height="22"><path fill="currentColor" d="M12 3l9 8h-3v10h-5v-6H11v6H6V11H3z"/></svg>
+      <span>Accueil</span>
+    </a>
+    <a href="{{ url_for('trending') }}" class="nav-item {% if request.endpoint=='trending' %}active{% endif %}">
+      <svg viewBox="0 0 24 24" width="22" height="22"><path fill="currentColor" d="M13.5.67s.74 2.65.74 4.8c0 2.06-1.35 3.73-3.41 3.73-2.07 0-3.63-1.67-3.63-3.73l.03-.36C5.21 7.51 4 10.62 4 14c0 4.42 3.58 8 8 8s8-3.58 8-8C20 8.61 17.41 3.8 13.5.67zM11.71 19c-1.78 0-3.22-1.4-3.22-3.14 0-1.62 1.05-2.76 2.81-3.12 1.77-.36 3.6-1.21 4.62-2.58.39 1.29.59 2.65.59 4.04 0 2.65-2.15 4.8-4.8 4.8z"/></svg>
+      <span>Tendances</span>
+    </a>
+    <a href="{{ url_for('subscriptions_feed') }}" class="nav-item {% if request.endpoint=='subscriptions_feed' %}active{% endif %}">
+      <svg viewBox="0 0 24 24" width="22" height="22"><path fill="currentColor" d="M10 18v-6l5 3-5 3zm9-15H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2z"/></svg>
+      <span>Abonnements</span>
+    </a>
+  </nav>
+
+  <hr>
+
+  <nav>
+    <div class="nav-heading">Vous</div>
+    <a href="{{ url_for('history') }}" class="nav-item {% if request.endpoint=='history' %}active{% endif %}">
+      <svg viewBox="0 0 24 24" width="22" height="22"><path fill="currentColor" d="M13 3a9 9 0 1 0 9 9h-2a7 7 0 1 1-7-7V3zm-1 5v5l4.25 2.52.75-1.23-3.5-2.08V8h-1.5z"/></svg>
+      <span>Historique</span>
+    </a>
+    {% if current_user %}
+    <a href="{{ url_for('channel', username=current_user.username) }}" class="nav-item">
+      <svg viewBox="0 0 24 24" width="22" height="22"><path fill="currentColor" d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/></svg>
+      <span>Ma chaîne</span>
+    </a>
+    <a href="{{ url_for('studio') }}" class="nav-item {% if request.endpoint=='studio' %}active{% endif %}">
+      <svg viewBox="0 0 24 24" width="22" height="22"><path fill="currentColor" d="M17 10.5V7a1 1 0 0 0-1-1H4a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-3.5l4 4v-11z"/></svg>
+      <span>Studio</span>
+    </a>
+    {% endif %}
+  </nav>
+
+  <hr>
+
+  <nav>
+    <div class="nav-heading">Explorer</div>
+    {% for cat in CATEGORIES %}
+      <a href="{{ url_for('home', c=cat) }}" class="nav-item">
+        <span class="dot"></span>
+        <span>{{ cat }}</span>
+      </a>
+    {% endfor %}
+  </nav>
+
+  <hr>
+
+  <div class="ecosystem">
+    <div class="nav-heading">L'Aube Étoilée</div>
+    <a href="https://aubeetoilee.com" target="_blank">🌅 Accueil</a>
+    <a href="https://docs.aubeetoilee.com" target="_blank">📝 AubeDocs</a>
+    <a href="https://drive.aubeetoilee.com" target="_blank">📁 AubeDrive</a>
+    <a href="https://data.aubeetoilee.com" target="_blank">📊 AubeData</a>
+    <a href="https://news.aubeetoilee.com" target="_blank">📰 AubeNews</a>
+  </div>
+</aside>
+
+<main class="main">
+  {% with msgs = get_flashed_messages(with_categories=true) %}
+    {% if msgs %}
+      <div class="flash-stack">
+        {% for cat, m in msgs %}
+          <div class="flash flash-{{ cat }}">{{ m }}</div>
+        {% endfor %}
+      </div>
+    {% endif %}
+  {% endwith %}
+  {% block content %}{% endblock %}
+</main>
+
+<script src="{{ url_for('static', filename='js/app.js') }}"></script>
+{% block scripts %}{% endblock %}
+</body>
+</html>

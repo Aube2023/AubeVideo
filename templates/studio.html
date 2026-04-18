@@ -1,0 +1,103 @@
+{% extends "base.html" %}
+{% block title %}Studio — AubeVideo{% endblock %}
+{% block content %}
+
+<h1>Studio AubeVideo</h1>
+<p class="subtitle">Gérez vos vidéos et consultez vos statistiques.</p>
+
+<div class="stats-grid">
+  <div class="stat-card">
+    <div class="stat-label">Abonnés</div>
+    <div class="stat-value">{{ stats.subscribers|count }}</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-label">Vidéos</div>
+    <div class="stat-value">{{ stats.total_videos }}</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-label">Vues cumulées</div>
+    <div class="stat-value">{{ stats.total_views|count }}</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-label">J'aime cumulés</div>
+    <div class="stat-value">{{ stats.total_likes|count }}</div>
+  </div>
+</div>
+
+<div class="studio-actions">
+  <a href="{{ url_for('upload') }}" class="btn btn-primary">+ Nouvelle vidéo</a>
+</div>
+
+{% if videos %}
+  <table class="studio-table">
+    <thead>
+      <tr>
+        <th>Vidéo</th>
+        <th>Visibilité</th>
+        <th>Date</th>
+        <th>Vues</th>
+        <th>J'aime</th>
+        <th>Commentaires</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for v in videos %}
+        <tr data-id="{{ v.id }}">
+          <td>
+            <div class="studio-row">
+              <img src="{{ url_for('thumbnail', video_id=v.id) }}" alt="" class="studio-thumb">
+              <div>
+                <a href="{{ url_for('watch', video_id=v.id) }}" class="studio-title">{{ v.title }}</a>
+                <div class="studio-desc">{{ (v.description or '')[:80] }}</div>
+              </div>
+            </div>
+          </td>
+          <td>
+            <span class="visibility-pill vis-{{ v.visibility }}">
+              {% if v.visibility == 'public' %}🌍 Publique
+              {% elif v.visibility == 'unlisted' %}🔗 Non répertoriée
+              {% else %}🔒 Privée{% endif %}
+            </span>
+          </td>
+          <td>{{ v.created_at|timeago }}</td>
+          <td>{{ v.views|count }}</td>
+          <td>{{ v.likes_count|count }}</td>
+          <td>{{ v.comments_count }}</td>
+          <td>
+            <button class="btn-ghost small" onclick="editVideo({{ v.id }}, '{{ v.title|e }}', '{{ v.visibility }}')">Modifier</button>
+            <button class="btn-danger small" onclick="deleteVideo({{ v.id }})">Supprimer</button>
+          </td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+{% else %}
+  <div class="empty-state">
+    <h3>Aucune vidéo publiée pour l'instant.</h3>
+    <a href="{{ url_for('upload') }}" class="btn btn-primary">Mettre en ligne ma première vidéo</a>
+  </div>
+{% endif %}
+
+<script>
+async function deleteVideo(id) {
+  if (!confirm('Supprimer définitivement cette vidéo ?')) return;
+  const r = await fetch('/api/video/' + id, {method: 'DELETE'});
+  if (r.ok) document.querySelector(`tr[data-id="${id}"]`).remove();
+  else alert('Erreur lors de la suppression.');
+}
+async function editVideo(id, currentTitle, currentVis) {
+  const title = prompt('Nouveau titre :', currentTitle);
+  if (title === null) return;
+  const visibility = prompt('Visibilité (public, unlisted, private) :', currentVis);
+  if (visibility === null) return;
+  const r = await fetch('/api/video/' + id, {
+    method: 'PATCH',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({title, visibility})
+  });
+  if (r.ok) location.reload();
+  else alert('Erreur lors de la modification.');
+}
+</script>
+{% endblock %}

@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+{% block title %}Paramètres — AubeVideo{% endblock %}
+{% block content %}
+
+<div class="container-narrow">
+  <h1>Paramètres du compte</h1>
+  <p class="subtitle">Personnalisez votre chaîne AubeVideo.</p>
+
+  <form method="post" enctype="multipart/form-data" class="upload-form">
+    <div class="avatar-editor">
+      <img src="{{ url_for('avatar', username=user.username) }}" alt="" class="avatar-lg">
+      <div>
+        <label class="field">
+          <span>Photo de profil</span>
+          <input type="file" name="avatar" accept="image/*">
+          <small>JPG, PNG ou WebP — redimensionnée automatiquement.</small>
+        </label>
+      </div>
+    </div>
+
+    <label class="field">
+      <span>Nom d'affichage</span>
+      <input type="text" name="display_name" value="{{ user.display_name }}" maxlength="128">
+    </label>
+
+    <label class="field">
+      <span>Biographie</span>
+      <textarea name="bio" rows="4" placeholder="Présentez-vous en quelques mots...">{{ user.bio or '' }}</textarea>
+    </label>
+
+    <div class="field">
+      <span>Nom d'utilisateur</span>
+      <input type="text" value="@{{ user.username }}" disabled>
+      <small>Identifiant système PAM partagé — non modifiable ici.</small>
+    </div>
+
+    <div class="form-actions">
+      <a href="{{ url_for('channel', username=user.username) }}" class="btn-ghost">Annuler</a>
+      <button type="submit" class="btn btn-primary">Enregistrer</button>
+    </div>
+  </form>
+</div>
+
+{% endblock %}

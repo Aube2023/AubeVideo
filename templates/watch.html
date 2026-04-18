@@ -1,0 +1,130 @@
+{% extends "base.html" %}
+{% block title %}{{ video.title }} — AubeVideo{% endblock %}
+{% block content %}
+
+<div class="watch-layout">
+  <div class="watch-main">
+    <div class="player-wrap">
+      <video id="player" controls autoplay playsinline preload="metadata"
+             poster="{{ url_for('thumbnail', video_id=video.id) }}">
+        <source src="{{ url_for('stream', video_id=video.id) }}" type="{{ video.mime_type }}">
+        Votre navigateur ne prend pas en charge la lecture vidéo.
+      </video>
+    </div>
+
+    <h1 class="video-title">{{ video.title }}</h1>
+
+    <div class="video-actions-bar">
+      <div class="channel-block">
+        <a href="{{ url_for('channel', username=video.username) }}">
+          <img class="avatar-md" src="{{ url_for('avatar', username=video.username) }}" alt="">
+        </a>
+        <div>
+          <a href="{{ url_for('channel', username=video.username) }}" class="channel-name">{{ video.display_name }}</a>
+          <div class="subs-count">{{ video.subscriber_count|count }} abonné{{ 's' if video.subscriber_count != 1 else '' }}</div>
+        </div>
+        {% if current_user and current_user.id != video.user_id %}
+          <button id="subBtn" class="btn-subscribe {% if is_subscribed %}subscribed{% endif %}"
+                  data-channel="{{ video.user_id }}">
+            {{ "Abonné" if is_subscribed else "S'abonner" }}
+          </button>
+        {% elif not current_user %}
+          <a href="{{ url_for('login') }}" class="btn-subscribe">S'abonner</a>
+        {% endif %}
+      </div>
+
+      <div class="reactions">
+        <div class="like-group">
+          <button class="like-btn {% if user_reaction=='like' %}active{% endif %}" data-reaction="like" data-video="{{ video.id }}">
+            <svg viewBox="0 0 24 24" width="22" height="22"><path fill="currentColor" d="M1 21h4V9H1v12zm22-11c0-1.1-.9-2-2-2h-6.31l.95-4.57.03-.32c0-.41-.17-.79-.44-1.06L14.17 1 7.59 7.59C7.22 7.95 7 8.45 7 9v10c0 1.1.9 2 2 2h9c.83 0 1.54-.5 1.84-1.22l3.02-7.05c.09-.23.14-.47.14-.73v-2z"/></svg>
+            <span id="likeCount">{{ video.likes_count|count }}</span>
+          </button>
+          <button class="dislike-btn {% if user_reaction=='dislike' %}active{% endif %}" data-reaction="dislike" data-video="{{ video.id }}">
+            <svg viewBox="0 0 24 24" width="22" height="22"><path fill="currentColor" d="M15 3H6c-.83 0-1.54.5-1.84 1.22l-3.02 7.05c-.09.23-.14.47-.14.73v2c0 1.1.9 2 2 2h6.31l-.95 4.57-.03.32c0 .41.17.79.44 1.06L9.83 23l6.59-6.59c.36-.36.58-.86.58-1.41V5c0-1.1-.9-2-2-2zm4 0v12h4V3h-4z"/></svg>
+          </button>
+        </div>
+        <button class="chip-btn" onclick="navigator.share ? navigator.share({title: document.title, url: location.href}) : (navigator.clipboard.writeText(location.href), alert('Lien copié !'))">
+          <svg viewBox="0 0 24 24" width="20" height="20"><path fill="currentColor" d="M18 16.08c-.76 0-1.44.3-1.96.77L8.91 12.7c.05-.23.09-.46.09-.7s-.04-.47-.09-.7l7.05-4.11c.54.5 1.25.81 2.04.81 1.66 0 3-1.34 3-3s-1.34-3-3-3-3 1.34-3 3c0 .24.04.47.09.7L8.04 9.81C7.5 9.31 6.79 9 6 9c-1.66 0-3 1.34-3 3s1.34 3 3 3c.79 0 1.5-.31 2.04-.81l7.12 4.16c-.05.21-.08.43-.08.65 0 1.61 1.31 2.92 2.92 2.92s2.92-1.31 2.92-2.92-1.31-2.92-2.92-2.92z"/></svg>
+          Partager
+        </button>
+        {% if current_user and current_user.id == video.user_id %}
+          <a href="{{ url_for('studio') }}" class="chip-btn">Modifier</a>
+        {% endif %}
+      </div>
+    </div>
+
+    <div class="description-card">
+      <div class="desc-meta">
+        <strong>{{ video.views|count }} vues</strong>
+        <span>{{ video.created_at|timeago }}</span>
+        {% if video.category %}<span class="cat-pill">{{ video.category }}</span>{% endif %}
+      </div>
+      <div class="desc-body">{{ video.description or "Aucune description." }}</div>
+      {% if video.tags %}
+        <div class="tags">
+          {% for t in video.tags.split(',') %}
+            {% if t.strip() %}<span class="tag">#{{ t.strip() }}</span>{% endif %}
+          {% endfor %}
+        </div>
+      {% endif %}
+    </div>
+
+    <section class="comments-section">
+      <h3>{{ video.comments_count }} commentaire{{ 's' if video.comments_count != 1 else '' }}</h3>
+
+      {% if current_user %}
+        <div class="comment-form">
+          <img class="avatar-sm" src="{{ url_for('avatar', username=current_user.username) }}" alt="">
+          <div class="comment-input">
+            <textarea id="commentContent" placeholder="Ajouter un commentaire..." rows="1"></textarea>
+            <div class="comment-actions">
+              <button class="btn-ghost" onclick="document.getElementById('commentContent').value=''">Annuler</button>
+              <button class="btn btn-primary" onclick="postComment({{ video.id }})">Commenter</button>
+            </div>
+          </div>
+        </div>
+      {% else %}
+        <a href="{{ url_for('login') }}" class="login-prompt">Connectez-vous pour commenter</a>
+      {% endif %}
+
+      <div id="commentsList" class="comments-list">
+        {% for c in comments %}
+          <div class="comment" data-id="{{ c.id }}">
+            <a href="{{ url_for('channel', username=c.username) }}">
+              <img class="avatar-sm" src="{{ url_for('avatar', username=c.username) }}" alt="">
+            </a>
+            <div class="c-body">
+              <div class="c-head">
+                <a href="{{ url_for('channel', username=c.username) }}" class="c-name">{{ c.display_name }}</a>
+                <span class="c-time">{{ c.created_at|timeago }}</span>
+              </div>
+              <div class="c-content">{{ c.content }}</div>
+              {% if current_user and (current_user.id == c.user_id or current_user.id == video.user_id) %}
+                <button class="c-delete" onclick="deleteComment({{ video.id }}, {{ c.id }})">Supprimer</button>
+              {% endif %}
+            </div>
+          </div>
+        {% endfor %}
+      </div>
+    </section>
+  </div>
+
+  <aside class="suggestions">
+    <h3>Suggestions</h3>
+    {% for s in suggestions %}
+      <a href="{{ url_for('watch', video_id=s.id) }}" class="sug-card">
+        <div class="sug-thumb">
+          <img src="{{ url_for('thumbnail', video_id=s.id) }}" alt="" loading="lazy">
+          {% if s.duration %}<span class="duration">{{ s.duration|duration }}</span>{% endif %}
+        </div>
+        <div class="sug-info">
+          <div class="sug-title">{{ s.title }}</div>
+          <div class="sug-channel">{{ s.display_name }}</div>
+          <div class="sug-stats">{{ s.views|count }} vues • {{ s.created_at|timeago }}</div>
+        </div>
+      </a>
+    {% endfor %}
+  </aside>
+</div>
+
+{% endblock %}

@@ -1,0 +1,22 @@
+[Unit]
+Description=AubeVideo - Plateforme vidéo L'Aube Étoilée
+After=network.target postgresql.service
+
+[Service]
+Type=simple
+User=www-data
+Group=www-data
+WorkingDirectory=/var/www/aubevideo
+EnvironmentFile=/var/www/aubevideo/.env
+ExecStart=/var/www/aubevideo/.venv/bin/gunicorn \
+    --workers 3 \
+    --timeout 600 \
+    --bind 127.0.0.1:5017 \
+    --access-logfile /var/log/aubevideo/access.log \
+    --error-logfile /var/log/aubevideo/error.log \
+    app:app
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
