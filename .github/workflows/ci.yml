@@ -1,0 +1,75 @@
+name: CI AubeVideo
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: aubevideo_user
+          POSTGRES_PASSWORD: aubevideo_pass
+          POSTGRES_DB: aubevideo
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install deps
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Install ffmpeg
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg
+
+      - name: Load schema
+        run: |
+          PGPASSWORD=aubevideo_pass psql -h localhost -U aubevideo_user -d aubevideo -f schema.sql
+
+      - name: Run tests
+        env:
+          AUBEVIDEO_DB: aubevideo
+          AUBEVIDEO_DB_USER: aubevideo_user
+          AUBEVIDEO_DB_PASS: aubevideo_pass
+          AUBEVIDEO_DB_HOST: localhost
+          AUBEVIDEO_DB_PORT: "5432"
+          AUBEVIDEO_DEV_MODE: "1"
+          AUBEVIDEO_SECRET: ci-secret
+        run: pytest -v
+
+      - name: Smoke test (startup)
+        env:
+          AUBEVIDEO_DB: aubevideo
+          AUBEVIDEO_DB_USER: aubevideo_user
+          AUBEVIDEO_DB_PASS: aubevideo_pass
+          AUBEVIDEO_DB_HOST: localhost
+          AUBEVIDEO_DEV_MODE: "1"
+          AUBEVIDEO_SECRET: ci-secret
+          FLASK_DEBUG: "0"
+        run: |
+          python app.py &
+          sleep 4
+          curl -sf http://localhost:5017/health
+          curl -sf http://localhost:5017/robots.txt
+          curl -sf http://localhost:5017/sitemap.xml
+          curl -sf http://localhost:5017/manifest.webmanifest
+          pkill -f "python app.py"

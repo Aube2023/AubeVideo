@@ -26,6 +26,8 @@
 
 <div class="studio-actions">
   <a href="{{ url_for('upload') }}" class="btn btn-primary">+ Nouvelle vidéo</a>
+  <a href="{{ url_for('studio_analytics') }}" class="btn-ghost">📊 Analytics</a>
+  <a href="{{ url_for('live_dashboard') }}" class="btn-ghost">🔴 Live</a>
 </div>
 
 {% if videos %}

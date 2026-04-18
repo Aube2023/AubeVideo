@@ -160,3 +160,72 @@ CREATE INDEX IF NOT EXISTS idx_reports_target ON reports(target_type, target_id)
 -- Colonnes additionnelles vidéos (migrations safe)
 ALTER TABLE videos ADD COLUMN IF NOT EXISTS is_removed BOOLEAN DEFAULT FALSE;
 ALTER TABLE comments ADD COLUMN IF NOT EXISTS is_removed BOOLEAN DEFAULT FALSE;
+
+-- v2 additions
+ALTER TABLE videos ADD COLUMN IF NOT EXISTS is_short BOOLEAN DEFAULT FALSE;
+ALTER TABLE videos ADD COLUMN IF NOT EXISTS is_live BOOLEAN DEFAULT FALSE;
+ALTER TABLE videos ADD COLUMN IF NOT EXISTS transcoding_status VARCHAR(16) DEFAULT 'done';
+ALTER TABLE videos ADD COLUMN IF NOT EXISTS qualities TEXT DEFAULT '';
+ALTER TABLE videos ADD COLUMN IF NOT EXISTS pinned_comment_id INTEGER;
+ALTER TABLE comments ADD COLUMN IF NOT EXISTS is_pinned BOOLEAN DEFAULT FALSE;
+ALTER TABLE comments ADD COLUMN IF NOT EXISTS hearted BOOLEAN DEFAULT FALSE;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS totp_secret VARCHAR(64);
+ALTER TABLE users ADD COLUMN IF NOT EXISTS totp_enabled BOOLEAN DEFAULT FALSE;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS stream_key VARCHAR(64) UNIQUE;
+
+-- Vues quotidiennes (analytics)
+CREATE TABLE IF NOT EXISTS daily_views (
+    id SERIAL PRIMARY KEY,
+    video_id INTEGER NOT NULL REFERENCES videos(id) ON DELETE CASCADE,
+    date DATE NOT NULL,
+    views INTEGER DEFAULT 0,
+    UNIQUE(video_id, date)
+);
+CREATE INDEX IF NOT EXISTS idx_daily_views_vid_date ON daily_views(video_id, date DESC);
+
+-- Sous-titres
+CREATE TABLE IF NOT EXISTS captions (
+    id SERIAL PRIMARY KEY,
+    video_id INTEGER NOT NULL REFERENCES videos(id) ON DELETE CASCADE,
+    lang VARCHAR(10) NOT NULL,
+    label VARCHAR(64) NOT NULL,
+    filename VARCHAR(256) NOT NULL,
+    is_auto BOOLEAN DEFAULT FALSE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_captions_video ON captions(video_id);
+
+-- Push web subscriptions (VAPID)
+CREATE TABLE IF NOT EXISTS push_subscriptions (
+    id SERIAL PRIMARY KEY,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    endpoint TEXT NOT NULL UNIQUE,
+    p256dh TEXT NOT NULL,
+    auth TEXT NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Tips / dons
+CREATE TABLE IF NOT EXISTS tips (
+    id SERIAL PRIMARY KEY,
+    from_user INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    to_user INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    amount_cents INTEGER NOT NULL,
+    currency VARCHAR(8) DEFAULT 'eur',
+    message TEXT DEFAULT '',
+    stripe_session_id VARCHAR(128),
+    status VARCHAR(16) DEFAULT 'pending',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Live streams
+CREATE TABLE IF NOT EXISTS live_streams (
+    id SERIAL PRIMARY KEY,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    title VARCHAR(255) NOT NULL,
+    status VARCHAR(16) DEFAULT 'idle',
+    viewers INTEGER DEFAULT 0,
+    started_at TIMESTAMP,
+    ended_at TIMESTAMP,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);

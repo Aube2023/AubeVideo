@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+{% block title %}2FA — AubeVideo{% endblock %}
+{% block content %}
+<div class="container-narrow">
+  <h1>🔐 Authentification à deux facteurs</h1>
+  {% if enabled %}
+    <p class="subtitle">La 2FA est actuellement <strong>activée</strong> sur votre compte.</p>
+    <form method="post">
+      <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
+      <input type="hidden" name="action" value="disable">
+      <button class="btn-danger small">Désactiver la 2FA</button>
+    </form>
+  {% else %}
+    <p class="subtitle">Scannez ce QR code dans Google Authenticator, Aegis ou 1Password, puis entrez le code à 6 chiffres.</p>
+
+    <div class="twofa-grid">
+      <div class="qr-placeholder">
+        <a href="{{ uri }}" target="_blank" rel="noopener">Ouvrir dans l'app</a>
+        <div class="secret-text">Ou entrez manuellement : <code>{{ secret }}</code></div>
+      </div>
+      <form method="post" style="flex:1">
+        <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
+        <input type="hidden" name="action" value="enable">
+        <label class="field">
+          <span>Code à 6 chiffres de l'app</span>
+          <input type="text" name="code" maxlength="6" inputmode="numeric" pattern="[0-9]{6}" required autofocus>
+        </label>
+        <button class="btn btn-primary">Activer la 2FA</button>
+      </form>
+    </div>
+  {% endif %}
+</div>
+{% endblock %}

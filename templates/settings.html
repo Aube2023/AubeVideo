@@ -50,6 +50,13 @@
       <button type="submit" class="btn btn-primary">Enregistrer</button>
     </div>
   </form>
+
+  <h2 class="section-h">Sécurité & données</h2>
+  <div class="settings-actions">
+    <a href="{{ url_for('twofa_setup') }}" class="btn-ghost">🔐 Authentification à deux facteurs</a>
+    <a href="{{ url_for('gdpr_export') }}" class="btn-ghost">📦 Exporter mes données (RGPD)</a>
+    <button class="btn-ghost" onclick="enablePushNotifications().then(()=>alert('Notifications activées'))">🔔 Activer les notifications push</button>
+  </div>
 </div>
 
 {% endblock %}

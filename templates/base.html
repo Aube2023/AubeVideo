@@ -5,7 +5,17 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="csrf-token" content="{{ csrf_token() }}">
   <title>{% block title %}AubeVideo — L'Aube Étoilée{% endblock %}</title>
+  <meta name="description" content="{% block description %}Plateforme de partage vidéo souveraine de L'Aube Étoilée{% endblock %}">
+  <meta property="og:site_name" content="AubeVideo">
+  <meta property="og:type" content="{% block og_type %}website{% endblock %}">
+  <meta property="og:title" content="{% block og_title %}AubeVideo{% endblock %}">
+  <meta property="og:description" content="{% block og_description %}Plateforme vidéo L'Aube Étoilée{% endblock %}">
+  <meta property="og:image" content="{% block og_image %}{{ url_for('static', filename='img/logo.svg', _external=True) }}{% endblock %}">
+  <meta property="og:url" content="{{ request.url }}">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="theme-color" content="#e8b84a">
   <link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='img/logo.svg') }}">
+  <link rel="manifest" href="{{ url_for('manifest') }}">
   <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
   {% block head %}{% endblock %}
 </head>
@@ -22,12 +32,15 @@
     </a>
   </div>
 
-  <form class="search-bar" action="{{ url_for('search') }}" method="get">
-    <input type="search" name="q" placeholder="Rechercher une vidéo, une chaîne..." value="{{ request.args.get('q','') }}" autocomplete="off">
-    <button type="submit" aria-label="Rechercher">
-      <svg viewBox="0 0 24 24" width="22" height="22"><path fill="currentColor" d="M15.5 14h-.79l-.28-.27a6.5 6.5 0 1 0-.7.7l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0A4.5 4.5 0 1 1 14 9.5 4.5 4.5 0 0 1 9.5 14z"/></svg>
-    </button>
-  </form>
+  <div class="search-wrap">
+    <form class="search-bar" action="{{ url_for('search') }}" method="get">
+      <input type="search" id="searchInput" name="q" placeholder="Rechercher une vidéo, une chaîne..." value="{{ request.args.get('q','') }}" autocomplete="off">
+      <button type="submit" aria-label="Rechercher">
+        <svg viewBox="0 0 24 24" width="22" height="22"><path fill="currentColor" d="M15.5 14h-.79l-.28-.27a6.5 6.5 0 1 0-.7.7l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0A4.5 4.5 0 1 1 14 9.5 4.5 4.5 0 0 1 9.5 14z"/></svg>
+      </button>
+    </form>
+    <div id="searchSuggest" class="search-suggest"></div>
+  </div>
 
   <div class="topbar-right">
     {% if current_user %}
@@ -99,6 +112,10 @@
     <a href="{{ url_for('trending') }}" class="nav-item {% if request.endpoint=='trending' %}active{% endif %}">
       <svg viewBox="0 0 24 24" width="22" height="22"><path fill="currentColor" d="M13.5.67s.74 2.65.74 4.8c0 2.06-1.35 3.73-3.41 3.73-2.07 0-3.63-1.67-3.63-3.73l.03-.36C5.21 7.51 4 10.62 4 14c0 4.42 3.58 8 8 8s8-3.58 8-8C20 8.61 17.41 3.8 13.5.67z"/></svg>
       <span>Tendances</span>
+    </a>
+    <a href="{{ url_for('shorts') }}" class="nav-item {% if request.endpoint=='shorts' %}active{% endif %}">
+      <svg viewBox="0 0 24 24" width="22" height="22"><path fill="currentColor" d="M12.77 3.34L8.39 12h3.85l-1.16 8.66L15.61 12h-3.85l1-8.66z"/></svg>
+      <span>Shorts</span>
     </a>
     <a href="{{ url_for('subscriptions_feed') }}" class="nav-item {% if request.endpoint=='subscriptions_feed' %}active{% endif %}">
       <svg viewBox="0 0 24 24" width="22" height="22"><path fill="currentColor" d="M10 18v-6l5 3-5 3zm9-15H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2z"/></svg>
@@ -180,6 +197,11 @@
 <div id="modalRoot"></div>
 
 <script src="{{ url_for('static', filename='js/app.js') }}"></script>
+<script>
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('/service-worker.js').catch(()=>{});
+}
+</script>
 {% block scripts %}{% endblock %}
 </body>
 </html>

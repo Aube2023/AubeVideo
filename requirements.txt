@@ -5,3 +5,10 @@ Pillow>=10.2.0
 gunicorn>=21.2.0
 python-dotenv>=1.0.0
 Werkzeug>=3.0.0
+
+# Optionnels (features avancées)
+redis>=5.0.0          # cache (fallback mémoire si absent)
+pywebpush>=2.0.0      # web push VAPID (silencieux si absent)
+stripe>=7.0.0         # tip jar (désactivé si absent)
+pytest>=8.0.0         # tests
+pytest-flask>=1.3.0   # fixtures Flask

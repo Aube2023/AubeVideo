@@ -5,6 +5,7 @@ Domaine public : video.aubeetoilee.com
 """
 import os
 import re
+import json
 import uuid
 import mimetypes
 import logging
@@ -34,6 +35,12 @@ from security import (
 )
 from media import generate_thumbnail, probe_metadata
 import notify
+import analytics
+import cache
+import totp
+import push
+import transcoding
+import payments
 
 # ---------- Configuration ----------
 BASE_DIR = Path(__file__).parent.resolve()
@@ -423,14 +430,19 @@ def upload():
             if not generate_thumbnail(video_path, thumb_path, ts):
                 thumb_name = ""
 
+        # Shorts = vertical et <= 60s
+        is_short = (meta.get("width", 0) < meta.get("height", 0)) and duration > 0 and duration <= 60
+
         with db_cursor(commit=True) as cur:
             cur.execute(
                 """INSERT INTO videos (user_id, title, description, filename,
-                   thumbnail, duration, file_size, mime_type, category, visibility, tags)
-                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                   thumbnail, duration, file_size, mime_type, category, visibility, tags,
+                   is_short, transcoding_status)
+                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                    RETURNING id""",
                 (uid, title, description, video_filename, thumb_name,
-                 duration, size, mime, category, visibility, tags),
+                 duration, size, mime, category, visibility, tags,
+                 is_short, "pending"),
             )
             vid = cur.fetchone()["id"]
 
@@ -443,8 +455,14 @@ def upload():
                     cur, uid, chan["display_name"], vid, title
                 )
 
-        app.logger.info("Upload: user=%s video=%s size=%s duration=%s",
-                        uid, vid, size, duration)
+        # Transcoding 360/480/720p en arrière-plan
+        try:
+            transcoding.enqueue(vid, video_path, ud / "videos")
+        except Exception:
+            pass
+
+        app.logger.info("Upload: user=%s video=%s size=%s duration=%s short=%s",
+                        uid, vid, size, duration, is_short)
         flash("Vidéo publiée !", "success")
         return redirect(url_for("watch", video_id=vid))
 
@@ -490,6 +508,10 @@ def watch(video_id):
                     viewed.pop(k, None)
             session["viewed"] = viewed
             session.modified = True
+            try:
+                analytics.log_view(video_id)
+            except Exception:
+                pass
 
         uid = session.get("user_id")
         if uid:
@@ -535,10 +557,16 @@ def watch(video_id):
                       (SELECT COUNT(*) FROM comments r WHERE r.parent_id = c.id) AS reply_count
                FROM comments c JOIN users u ON c.user_id = u.id
                WHERE c.video_id = %s AND c.parent_id IS NULL AND c.is_removed = FALSE
-               ORDER BY c.likes_count DESC, c.created_at DESC""",
+               ORDER BY c.is_pinned DESC, c.likes_count DESC, c.created_at DESC""",
             (video_id,),
         )
         comments = cur.fetchall()
+
+        cur.execute(
+            "SELECT id, lang, label, is_auto FROM captions WHERE video_id = %s ORDER BY created_at",
+            (video_id,),
+        )
+        captions = cur.fetchall()
 
         cur.execute(
             """SELECT v.*, u.username, u.display_name, u.avatar_url
@@ -565,6 +593,7 @@ def watch(video_id):
         "watch.html",
         video=video,
         comments=comments,
+        captions=captions,
         suggestions=suggestions,
         user_reaction=user_reaction,
         is_subscribed=is_subscribed,
@@ -1408,6 +1437,478 @@ def handle_report(report_id):
         else:
             return jsonify({"error": "action invalide"}), 400
     return jsonify({"ok": True})
+
+
+# ---------- Shorts ----------
+@app.route("/shorts")
+def shorts():
+    with db_cursor() as cur:
+        cur.execute(
+            """SELECT v.*, u.username, u.display_name, u.avatar_url
+               FROM videos v JOIN users u ON v.user_id = u.id
+               WHERE v.visibility = 'public' AND v.is_short = TRUE
+                     AND v.is_removed = FALSE
+               ORDER BY v.created_at DESC LIMIT 30"""
+        )
+        videos = cur.fetchall()
+    return render_template("shorts.html", videos=videos)
+
+
+# ---------- Analytics (studio) ----------
+@app.route("/studio/analytics")
+@login_required
+def studio_analytics():
+    uid = session["user_id"]
+    days = int(request.args.get("days", 30))
+    days = max(7, min(days, 365))
+    series = analytics.channel_series(uid, days=days)
+    svg = analytics.sparkline_svg(series, width=800, height=180)
+    total = sum(p["views"] for p in series)
+    with db_cursor() as cur:
+        cur.execute(
+            """SELECT id, title, views, likes_count, comments_count
+               FROM videos WHERE user_id = %s AND is_removed = FALSE
+               ORDER BY views DESC LIMIT 10""",
+            (uid,),
+        )
+        top = cur.fetchall()
+    return render_template("analytics.html",
+                           series=series, svg=svg, total=total,
+                           days=days, top=top)
+
+
+@app.route("/api/video/<int:video_id>/series")
+@login_required
+def video_series_api(video_id):
+    uid = session["user_id"]
+    with db_cursor() as cur:
+        cur.execute("SELECT user_id FROM videos WHERE id = %s", (video_id,))
+        v = cur.fetchone()
+        if not v:
+            return jsonify({"error": "introuvable"}), 404
+        if v["user_id"] != uid:
+            cur.execute("SELECT is_admin FROM users WHERE id = %s", (uid,))
+            a = cur.fetchone()
+            if not (a and a["is_admin"]):
+                return jsonify({"error": "interdit"}), 403
+    days = int(request.args.get("days", 30))
+    days = max(7, min(days, 365))
+    return jsonify(analytics.video_series(video_id, days=days))
+
+
+# ---------- Search autocomplete ----------
+@app.route("/api/suggest")
+def suggest():
+    q = (request.args.get("q") or "").strip()
+    if len(q) < 2:
+        return jsonify([])
+    like = f"{q}%"
+    wlike = f"%{q}%"
+    key = f"suggest:{q.lower()}"
+    hit = cache.get(key)
+    if hit is not None:
+        return jsonify(hit)
+    with db_cursor() as cur:
+        cur.execute(
+            """(SELECT title AS text, 'video' AS kind, id
+                FROM videos
+                WHERE visibility = 'public' AND is_removed = FALSE AND title ILIKE %s
+                ORDER BY views DESC LIMIT 6)
+               UNION ALL
+               (SELECT display_name AS text, 'channel' AS kind, id
+                FROM users
+                WHERE (display_name ILIKE %s OR username ILIKE %s) AND is_banned = FALSE
+                LIMIT 4)""",
+            (like, wlike, wlike),
+        )
+        rows = cur.fetchall()
+    out = [{"text": r["text"], "kind": r["kind"], "id": r["id"]} for r in rows]
+    cache.set(key, out, ttl=60)
+    return jsonify(out)
+
+
+# ---------- Pinned comments + creator heart ----------
+@app.route("/api/comment/<int:comment_id>/pin", methods=["POST"])
+@login_required
+def pin_comment(comment_id):
+    uid = session["user_id"]
+    with db_cursor(commit=True) as cur:
+        cur.execute(
+            """SELECT c.video_id, v.user_id AS owner
+               FROM comments c JOIN videos v ON c.video_id = v.id
+               WHERE c.id = %s""",
+            (comment_id,),
+        )
+        row = cur.fetchone()
+        if not row:
+            return jsonify({"error": "introuvable"}), 404
+        if row["owner"] != uid:
+            return jsonify({"error": "seul le créateur peut épingler"}), 403
+        # Désépingle les anciens du même vidéo
+        cur.execute(
+            "UPDATE comments SET is_pinned = FALSE WHERE video_id = %s AND is_pinned = TRUE",
+            (row["video_id"],),
+        )
+        cur.execute(
+            "UPDATE comments SET is_pinned = TRUE WHERE id = %s", (comment_id,)
+        )
+        cur.execute(
+            "UPDATE videos SET pinned_comment_id = %s WHERE id = %s",
+            (comment_id, row["video_id"]),
+        )
+    return jsonify({"ok": True})
+
+
+@app.route("/api/comment/<int:comment_id>/heart", methods=["POST"])
+@login_required
+def heart_comment(comment_id):
+    uid = session["user_id"]
+    with db_cursor(commit=True) as cur:
+        cur.execute(
+            """SELECT v.user_id AS owner, c.hearted
+               FROM comments c JOIN videos v ON c.video_id = v.id
+               WHERE c.id = %s""",
+            (comment_id,),
+        )
+        row = cur.fetchone()
+        if not row:
+            return jsonify({"error": "introuvable"}), 404
+        if row["owner"] != uid:
+            return jsonify({"error": "seul le créateur"}), 403
+        new_val = not row["hearted"]
+        cur.execute("UPDATE comments SET hearted = %s WHERE id = %s",
+                    (new_val, comment_id))
+    return jsonify({"hearted": new_val})
+
+
+# ---------- Captions (.vtt) ----------
+@app.route("/api/video/<int:video_id>/captions", methods=["GET", "POST"])
+def captions_api(video_id):
+    if request.method == "GET":
+        with db_cursor() as cur:
+            cur.execute(
+                """SELECT id, lang, label, is_auto FROM captions WHERE video_id = %s
+                   ORDER BY created_at DESC""",
+                (video_id,),
+            )
+            rows = cur.fetchall()
+        return jsonify([dict(r) for r in rows])
+
+    if not session.get("user_id"):
+        return jsonify({"error": "auth"}), 401
+    with db_cursor() as cur:
+        cur.execute("SELECT user_id FROM videos WHERE id = %s", (video_id,))
+        v = cur.fetchone()
+        if not v or v["user_id"] != session["user_id"]:
+            return jsonify({"error": "interdit"}), 403
+
+    file = request.files.get("file")
+    lang = request.form.get("lang", "fr")[:10]
+    label = request.form.get("label", "Français")[:64]
+    if not file or not file.filename.endswith((".vtt", ".srt")):
+        return jsonify({"error": "fichier .vtt ou .srt requis"}), 400
+    ud = user_dir(v["user_id"])
+    (ud / "captions").mkdir(parents=True, exist_ok=True)
+    fname = f"{video_id}_{lang}_{uuid.uuid4().hex[:8]}.vtt"
+    path = ud / "captions" / fname
+    content = file.read().decode("utf-8", errors="ignore")
+    if file.filename.endswith(".srt"):
+        content = _srt_to_vtt(content)
+    path.write_text(content, encoding="utf-8")
+    with db_cursor(commit=True) as cur:
+        cur.execute(
+            """INSERT INTO captions (video_id, lang, label, filename)
+               VALUES (%s, %s, %s, %s) RETURNING id""",
+            (video_id, lang, label, fname),
+        )
+        cap_id = cur.fetchone()["id"]
+    return jsonify({"id": cap_id, "lang": lang, "label": label})
+
+
+def _srt_to_vtt(text: str) -> str:
+    out = ["WEBVTT", ""]
+    for line in text.splitlines():
+        if "-->" in line:
+            line = line.replace(",", ".")
+        if not line.strip().isdigit():
+            out.append(line)
+    return "\n".join(out)
+
+
+@app.route("/caption/<int:caption_id>")
+def caption_file(caption_id):
+    with db_cursor() as cur:
+        cur.execute(
+            """SELECT c.filename, v.user_id
+               FROM captions c JOIN videos v ON c.video_id = v.id
+               WHERE c.id = %s""",
+            (caption_id,),
+        )
+        c = cur.fetchone()
+    if not c:
+        abort(404)
+    path = user_dir(c["user_id"]) / "captions" / c["filename"]
+    if not path.exists():
+        abort(404)
+    return send_from_directory(path.parent, path.name, mimetype="text/vtt")
+
+
+# ---------- 2FA TOTP ----------
+@app.route("/settings/2fa", methods=["GET", "POST"])
+@login_required
+def twofa_setup():
+    uid = session["user_id"]
+    if request.method == "POST":
+        action = request.form.get("action")
+        with db_cursor(commit=True) as cur:
+            if action == "enable":
+                secret = session.get("_pending_totp")
+                code = request.form.get("code", "").strip()
+                if not secret or not totp.verify(secret, code):
+                    flash("Code invalide.", "error")
+                    return redirect(url_for("twofa_setup"))
+                cur.execute(
+                    "UPDATE users SET totp_secret = %s, totp_enabled = TRUE WHERE id = %s",
+                    (secret, uid),
+                )
+                session.pop("_pending_totp", None)
+                flash("2FA activé.", "success")
+            elif action == "disable":
+                cur.execute(
+                    "UPDATE users SET totp_secret = NULL, totp_enabled = FALSE WHERE id = %s",
+                    (uid,),
+                )
+                flash("2FA désactivé.", "success")
+        return redirect(url_for("twofa_setup"))
+
+    with db_cursor() as cur:
+        cur.execute("SELECT totp_enabled, username FROM users WHERE id = %s", (uid,))
+        u = cur.fetchone()
+    secret = None
+    uri = None
+    if not u["totp_enabled"]:
+        secret = session.get("_pending_totp")
+        if not secret:
+            secret = totp.generate_secret()
+            session["_pending_totp"] = secret
+        uri = totp.provisioning_uri(secret, u["username"])
+    return render_template("twofa.html", enabled=u["totp_enabled"],
+                           secret=secret, uri=uri)
+
+
+# ---------- Web push ----------
+@app.route("/api/push/key")
+def push_key():
+    return jsonify({"key": push.public_key_b64()})
+
+
+@app.route("/api/push/subscribe", methods=["POST"])
+@login_required
+def push_subscribe():
+    sub = request.get_json(silent=True) or {}
+    push.save_subscription(session["user_id"], sub)
+    return jsonify({"ok": True})
+
+
+@app.route("/api/push/unsubscribe", methods=["POST"])
+@login_required
+def push_unsubscribe():
+    data = request.get_json(silent=True) or {}
+    push.remove_subscription(session["user_id"], data.get("endpoint", ""))
+    return jsonify({"ok": True})
+
+
+# ---------- Tip jar (Stripe) ----------
+@app.route("/tip/<username>", methods=["GET", "POST"])
+def tip_page(username):
+    with db_cursor() as cur:
+        cur.execute("SELECT id, display_name, username FROM users WHERE username = %s",
+                    (username,))
+        u = cur.fetchone()
+    if not u:
+        abort(404)
+    if request.method == "POST":
+        try:
+            amount_cents = int(request.form.get("amount", "0")) * 100
+        except ValueError:
+            amount_cents = 0
+        message = (request.form.get("message") or "")[:500]
+        if amount_cents < 100:
+            flash("Montant minimum 1 €.", "error")
+            return redirect(url_for("tip_page", username=username))
+        url = payments.create_checkout(
+            session.get("user_id"), u["id"], u["display_name"],
+            amount_cents, message,
+        )
+        if not url:
+            flash("Les paiements ne sont pas configurés.", "error")
+            return redirect(url_for("tip_page", username=username))
+        return redirect(url)
+    return render_template("tip.html", creator=u)
+
+
+@app.route("/tip/success")
+def tip_success():
+    flash("Merci pour votre don !", "success")
+    return redirect(url_for("home"))
+
+
+@app.route("/tip/cancel")
+def tip_cancel():
+    flash("Don annulé.", "error")
+    return redirect(url_for("home"))
+
+
+@app.route("/stripe/webhook", methods=["POST"])
+def stripe_webhook():
+    sig = request.headers.get("Stripe-Signature", "")
+    if payments.handle_webhook(request.get_data(), sig):
+        return "", 200
+    return "", 400
+
+
+# ---------- Live streaming (skeleton) ----------
+@app.route("/studio/live")
+@login_required
+def live_dashboard():
+    uid = session["user_id"]
+    with db_cursor(commit=True) as cur:
+        cur.execute("SELECT stream_key FROM users WHERE id = %s", (uid,))
+        u = cur.fetchone()
+        if not u["stream_key"]:
+            key = uuid.uuid4().hex
+            cur.execute("UPDATE users SET stream_key = %s WHERE id = %s", (key, uid))
+            u = {"stream_key": key}
+    rtmp_base = os.environ.get("AUBEVIDEO_RTMP_URL", "rtmp://video.aubeetoilee.com/live")
+    return render_template("live.html",
+                           stream_key=u["stream_key"],
+                           rtmp_base=rtmp_base)
+
+
+@app.route("/api/live/callback", methods=["POST"])
+def live_callback():
+    """Endpoint appelé par nginx-rtmp on_publish / on_publish_done."""
+    key = request.form.get("name", "")
+    action = request.form.get("call", "")  # publish / publish_done
+    with db_cursor(commit=True) as cur:
+        cur.execute("SELECT id FROM users WHERE stream_key = %s", (key,))
+        u = cur.fetchone()
+        if not u:
+            return "", 403
+        if action == "publish":
+            cur.execute(
+                """INSERT INTO live_streams (user_id, title, status, started_at)
+                   VALUES (%s, %s, 'live', NOW())""",
+                (u["id"], "Direct AubeVideo"),
+            )
+        else:
+            cur.execute(
+                """UPDATE live_streams SET status = 'ended', ended_at = NOW()
+                   WHERE user_id = %s AND status = 'live'""",
+                (u["id"],),
+            )
+    return "", 200
+
+
+# ---------- GDPR export ----------
+@app.route("/settings/export")
+@login_required
+def gdpr_export():
+    uid = session["user_id"]
+    import zipfile
+    import io
+    import csv
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
+        with db_cursor() as cur:
+            cur.execute("SELECT * FROM users WHERE id = %s", (uid,))
+            user = cur.fetchone()
+            z.writestr("user.json", json.dumps(dict(user), default=str, ensure_ascii=False, indent=2))
+
+            cur.execute("SELECT * FROM videos WHERE user_id = %s", (uid,))
+            videos = [dict(v) for v in cur.fetchall()]
+            z.writestr("videos.json", json.dumps(videos, default=str, ensure_ascii=False, indent=2))
+
+            cur.execute("SELECT * FROM comments WHERE user_id = %s", (uid,))
+            comments = [dict(c) for c in cur.fetchall()]
+            z.writestr("comments.json", json.dumps(comments, default=str, ensure_ascii=False, indent=2))
+
+            cur.execute("SELECT * FROM subscriptions WHERE subscriber_id = %s", (uid,))
+            subs = [dict(s) for s in cur.fetchall()]
+            z.writestr("subscriptions.json", json.dumps(subs, default=str, ensure_ascii=False, indent=2))
+
+            cur.execute("SELECT * FROM watch_history WHERE user_id = %s", (uid,))
+            history = [dict(h) for h in cur.fetchall()]
+            z.writestr("history.json", json.dumps(history, default=str, ensure_ascii=False, indent=2))
+    buf.seek(0)
+    return Response(buf.getvalue(),
+                    mimetype="application/zip",
+                    headers={"Content-Disposition": f"attachment; filename=aubevideo-export-{uid}.zip"})
+
+
+# ---------- SEO: sitemap + robots + manifest ----------
+@app.route("/robots.txt")
+def robots():
+    public = os.environ.get("AUBEVIDEO_PUBLIC_URL", "http://localhost:5017")
+    return Response(
+        f"User-agent: *\nAllow: /\nDisallow: /admin\nDisallow: /api/\nSitemap: {public}/sitemap.xml\n",
+        mimetype="text/plain",
+    )
+
+
+@app.route("/sitemap.xml")
+def sitemap():
+    public = os.environ.get("AUBEVIDEO_PUBLIC_URL", "http://localhost:5017")
+    urls = [f"{public}/", f"{public}/trending", f"{public}/shorts"]
+    with db_cursor() as cur:
+        cur.execute(
+            """SELECT id, created_at FROM videos
+               WHERE visibility = 'public' AND is_removed = FALSE
+               ORDER BY created_at DESC LIMIT 5000"""
+        )
+        vids = cur.fetchall()
+        cur.execute(
+            "SELECT username FROM users WHERE is_banned = FALSE LIMIT 5000"
+        )
+        users = cur.fetchall()
+    xml = ['<?xml version="1.0" encoding="UTF-8"?>',
+           '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">']
+    for u in urls:
+        xml.append(f"<url><loc>{u}</loc></url>")
+    for v in vids:
+        xml.append(
+            f"<url><loc>{public}/watch/{v['id']}</loc>"
+            f"<lastmod>{v['created_at'].date().isoformat()}</lastmod></url>"
+        )
+    for u in users:
+        xml.append(f"<url><loc>{public}/c/{u['username']}</loc></url>")
+    xml.append("</urlset>")
+    return Response("\n".join(xml), mimetype="application/xml")
+
+
+@app.route("/manifest.webmanifest")
+def manifest():
+    return jsonify({
+        "name": "AubeVideo",
+        "short_name": "AubeVideo",
+        "description": "Plateforme vidéo de L'Aube Étoilée",
+        "start_url": "/",
+        "display": "standalone",
+        "background_color": "#0f0f0f",
+        "theme_color": "#e8b84a",
+        "lang": "fr",
+        "icons": [
+            {"src": "/static/img/logo.svg", "sizes": "any", "type": "image/svg+xml"},
+            {"src": "/static/img/icon-192.png", "sizes": "192x192", "type": "image/png"},
+            {"src": "/static/img/icon-512.png", "sizes": "512x512", "type": "image/png"},
+        ],
+    })
+
+
+@app.route("/service-worker.js")
+def service_worker():
+    return send_from_directory(BASE_DIR / "static", "service-worker.js",
+                                mimetype="application/javascript")
 
 
 # ---------- Health / monitoring ----------

@@ -1,0 +1,34 @@
+{% extends "base.html" %}
+{% block title %}Analytics — AubeVideo Studio{% endblock %}
+{% block content %}
+<div class="container-narrow">
+  <h1>📊 Analytics</h1>
+  <p class="subtitle">Total de <strong>{{ total|count }}</strong> vues sur les {{ days }} derniers jours.</p>
+
+  <div class="chips" style="position:static;margin-bottom:16px">
+    <a href="?days=7" class="chip {% if days==7 %}active{% endif %}">7 jours</a>
+    <a href="?days=30" class="chip {% if days==30 %}active{% endif %}">30 jours</a>
+    <a href="?days=90" class="chip {% if days==90 %}active{% endif %}">90 jours</a>
+    <a href="?days=365" class="chip {% if days==365 %}active{% endif %}">1 an</a>
+  </div>
+
+  <div class="chart-card">
+    {{ svg|safe }}
+  </div>
+
+  <h2 class="section-h">Top 10 vidéos</h2>
+  <table class="studio-table">
+    <thead><tr><th>Titre</th><th>Vues</th><th>J'aime</th><th>Commentaires</th></tr></thead>
+    <tbody>
+      {% for v in top %}
+        <tr>
+          <td><a href="{{ url_for('watch', video_id=v.id) }}">{{ v.title }}</a></td>
+          <td>{{ v.views|count }}</td>
+          <td>{{ v.likes_count|count }}</td>
+          <td>{{ v.comments_count }}</td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

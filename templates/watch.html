@@ -1,16 +1,25 @@
 {% extends "base.html" %}
 {% block title %}{{ video.title }} — AubeVideo{% endblock %}
+{% block og_type %}video.other{% endblock %}
+{% block og_title %}{{ video.title }}{% endblock %}
+{% block og_description %}{{ (video.description or '')[:200] }}{% endblock %}
+{% block og_image %}{{ url_for('thumbnail', video_id=video.id, _external=True) }}{% endblock %}
+{% block description %}{{ (video.description or '')[:160] }}{% endblock %}
 {% block content %}
 
 <div class="watch-layout" id="watchLayout">
   <div class="watch-main">
     <div class="player-wrap" id="playerWrap">
       <video id="player" controls autoplay playsinline preload="metadata"
-             poster="{{ url_for('thumbnail', video_id=video.id) }}">
-        <source src="{{ url_for('stream', video_id=video.id) }}" type="{{ video.mime_type }}">
+             poster="{{ url_for('thumbnail', video_id=video.id) }}" crossorigin="anonymous">
+        <source id="playerSource" src="{{ url_for('stream', video_id=video.id) }}" type="{{ video.mime_type }}">
+        {% for cap in captions %}
+          <track kind="subtitles" src="{{ url_for('caption_file', caption_id=cap.id) }}" srclang="{{ cap.lang }}" label="{{ cap.label }}{% if cap.is_auto %} (auto){% endif %}">
+        {% endfor %}
         Votre navigateur ne prend pas en charge la lecture vidéo.
       </video>
       <div class="player-overlay" id="playerOverlay"></div>
+      <div class="quality-selector" id="qualitySelector"></div>
     </div>
 
     <h1 class="video-title">{{ video.title }}</h1>
@@ -70,8 +79,12 @@
             <svg viewBox="0 0 24 24" width="18" height="18"><path fill="currentColor" d="M14.4 6L14 4H5v17h2v-7h5.6l.4 2h7V6z"/></svg>
           </button>
         {% endif %}
+        {% if current_user and current_user.id != video.user_id %}
+          <a href="{{ url_for('tip_page', username=video.username) }}" class="chip-btn tip-btn">☕ Soutenir</a>
+        {% endif %}
         {% if current_user and current_user.id == video.user_id %}
           <a href="{{ url_for('studio') }}" class="chip-btn">Modifier</a>
+          <button class="chip-btn" onclick="openCaptionsUpload({{ video.id }})">💬 Sous-titres</button>
         {% endif %}
       </div>
     </div>
@@ -82,7 +95,8 @@
         <span>{{ video.created_at|timeago }}</span>
         {% if video.category %}<span class="cat-pill">{{ video.category }}</span>{% endif %}
       </div>
-      <div class="desc-body">{{ video.description or "Aucune description." }}</div>
+      <div class="desc-body" id="videoDescription">{{ video.description or "Aucune description." }}</div>
+      <div id="chaptersList" class="chapters-list"></div>
       {% if video.tags %}
         <div class="tags">
           {% for t in video.tags.split(',') %}
@@ -112,14 +126,17 @@
 
       <div id="commentsList" class="comments-list">
         {% for c in comments %}
-          <div class="comment" data-id="{{ c.id }}">
+          <div class="comment {% if c.is_pinned %}pinned{% endif %}" data-id="{{ c.id }}">
             <a href="{{ url_for('channel', username=c.username) }}">
               <img class="avatar-sm" src="{{ url_for('avatar', username=c.username) }}" alt="">
             </a>
             <div class="c-body">
+              {% if c.is_pinned %}<div class="pin-tag">📌 Épinglé par {{ video.display_name }}</div>{% endif %}
               <div class="c-head">
                 <a href="{{ url_for('channel', username=c.username) }}" class="c-name">{{ c.display_name }}</a>
+                {% if c.user_id == video.user_id %}<span class="author-tag">Auteur</span>{% endif %}
                 <span class="c-time">{{ c.created_at|timeago }}</span>
+                {% if c.hearted %}<span class="heart-tag" title="Adoré par {{ video.display_name }}">❤</span>{% endif %}
               </div>
               <div class="c-content">{{ c.content }}</div>
               <div class="c-foot">
@@ -130,6 +147,10 @@
                 {% if current_user %}
                   <button class="c-reply" onclick="toggleReply({{ c.id }})">Répondre</button>
                   <button class="c-report" onclick="openReport('comment', {{ c.id }})" title="Signaler">⚐</button>
+                {% endif %}
+                {% if current_user and current_user.id == video.user_id %}
+                  <button class="c-pin" onclick="pinComment({{ c.id }})">📌 {% if c.is_pinned %}Désépingler{% else %}Épingler{% endif %}</button>
+                  <button class="c-heart" onclick="heartComment({{ c.id }})">{% if c.hearted %}♥{% else %}♡{% endif %}</button>
                 {% endif %}
                 {% if c.reply_count > 0 %}
                   <button class="c-show-replies" onclick="loadReplies({{ c.id }})">
@@ -167,13 +188,17 @@
   </aside>
 </div>
 
-{% if current_user and my_playlists %}
 <script>
 window.AUBE_VIDEO_ID = {{ video.id }};
+window.AUBE_VIDEO_QUALITIES = "{{ video.qualities or '' }}";
+window.AUBE_VIDEO_OWNER = {{ video.user_id }};
+{% if current_user %}
 window.AUBE_PLAYLISTS = {{ my_playlists|tojson }};
-</script>
-{% elif current_user %}
-<script>window.AUBE_VIDEO_ID = {{ video.id }}; window.AUBE_PLAYLISTS = [];</script>
+window.AUBE_IS_OWNER = {{ 'true' if current_user.id == video.user_id else 'false' }};
+{% else %}
+window.AUBE_PLAYLISTS = [];
+window.AUBE_IS_OWNER = false;
 {% endif %}
+</script>
 
 {% endblock %}

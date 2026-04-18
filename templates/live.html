@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+{% block title %}Live — AubeVideo Studio{% endblock %}
+{% block content %}
+<div class="container-narrow">
+  <h1>🔴 Diffusion en direct</h1>
+  <p class="subtitle">Utilisez OBS Studio ou Streamlabs pour diffuser vers AubeVideo.</p>
+
+  <div class="field">
+    <span>Serveur RTMP</span>
+    <input type="text" readonly value="{{ rtmp_base }}">
+  </div>
+  <div class="field">
+    <span>Clé de diffusion (secret — ne partagez jamais)</span>
+    <input type="password" id="streamKey" readonly value="{{ stream_key }}">
+    <button class="btn-ghost" onclick="const e=document.getElementById('streamKey');e.type=e.type==='text'?'password':'text'">👁 Voir</button>
+    <button class="btn-ghost" onclick="navigator.clipboard.writeText('{{ stream_key }}');this.textContent='✓ Copiée'">Copier</button>
+  </div>
+
+  <h2 class="section-h">Configuration OBS</h2>
+  <ol style="padding-left:20px;line-height:1.8">
+    <li>Paramètres → Flux → Service : <strong>Personnalisé</strong></li>
+    <li>Serveur : <code>{{ rtmp_base }}</code></li>
+    <li>Clé de flux : votre clé ci-dessus</li>
+    <li>Démarrer le streaming → vous apparaîtrez en direct sur votre chaîne</li>
+  </ol>
+
+  <div class="flash flash-success" style="position:static;margin-top:20px">
+    ℹ️ Côté serveur : activez <code>nginx-rtmp-module</code> + <code>ffmpeg</code> pour HLS.
+    Callbacks <code>on_publish</code> / <code>on_publish_done</code> → <code>/api/live/callback</code>.
+  </div>
+</div>
+{% endblock %}

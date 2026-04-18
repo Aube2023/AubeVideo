@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+{% block title %}Shorts — AubeVideo{% endblock %}
+{% block content %}
+<div class="shorts-feed" id="shortsFeed">
+  {% for v in videos %}
+    <div class="short-slide" data-id="{{ v.id }}">
+      <video loop playsinline preload="metadata" poster="{{ url_for('thumbnail', video_id=v.id) }}">
+        <source src="{{ url_for('stream', video_id=v.id) }}" type="{{ v.mime_type }}">
+      </video>
+      <div class="short-overlay">
+        <div class="short-actions">
+          <button class="short-btn" onclick="likeShort({{ v.id }}, this)">
+            ❤ <span>{{ v.likes_count|count }}</span>
+          </button>
+          <a href="{{ url_for('watch', video_id=v.id) }}" class="short-btn">💬 <span>{{ v.comments_count }}</span></a>
+          <button class="short-btn" onclick="shareVideo({{ v.id }})">↗</button>
+        </div>
+        <div class="short-info">
+          <a href="{{ url_for('channel', username=v.username) }}" class="short-channel">
+            <img src="{{ url_for('avatar', username=v.username) }}" alt="">
+            <strong>@{{ v.username }}</strong>
+          </a>
+          <div class="short-title">{{ v.title }}</div>
+        </div>
+      </div>
+    </div>
+  {% endfor %}
+  {% if not videos %}<div class="empty-state"><h3>Aucun Short pour le moment.</h3></div>{% endif %}
+</div>
+
+<script>
+const slides = document.querySelectorAll('.short-slide');
+const obs = new IntersectionObserver((entries) => {
+  entries.forEach(e => {
+    const v = e.target.querySelector('video');
+    if (!v) return;
+    if (e.isIntersecting) { v.play().catch(()=>{}); }
+    else { v.pause(); v.currentTime = 0; }
+  });
+}, {threshold: 0.7});
+slides.forEach(s => obs.observe(s));
+
+async function likeShort(id, btn) {
+  const r = await fetch('/api/video/' + id + '/react', {
+    method:'POST', headers:jsonHeaders(), body: JSON.stringify({reaction:'like'})
+  });
+  if (r.status === 401) { location = '/login'; return; }
+  if (!r.ok) return;
+  const d = await r.json();
+  btn.querySelector('span').textContent = formatCount(d.likes);
+  btn.classList.toggle('active', d.reaction === 'like');
+}
+</script>
+{% endblock %}

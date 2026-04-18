@@ -449,3 +449,159 @@ function fmtTime(s) {
   const m = Math.floor(s/60), r = s%60;
   return m + ':' + (r < 10 ? '0' : '') + r;
 }
+
+/* ========= SEARCH AUTOCOMPLETE ========= */
+const searchInput = document.getElementById('searchInput');
+const searchSuggest = document.getElementById('searchSuggest');
+let searchTimer;
+if (searchInput && searchSuggest) {
+  searchInput.addEventListener('input', () => {
+    clearTimeout(searchTimer);
+    const q = searchInput.value.trim();
+    if (q.length < 2) { searchSuggest.innerHTML = ''; searchSuggest.classList.remove('open'); return; }
+    searchTimer = setTimeout(async () => {
+      const r = await fetch('/api/suggest?q=' + encodeURIComponent(q));
+      if (!r.ok) return;
+      const items = await r.json();
+      if (!items.length) { searchSuggest.innerHTML = ''; searchSuggest.classList.remove('open'); return; }
+      searchSuggest.innerHTML = items.map(it => {
+        const link = it.kind === 'channel' ? `/c/${encodeURIComponent(it.text)}` : `/search?q=${encodeURIComponent(it.text)}`;
+        const icon = it.kind === 'channel' ? '👤' : '▶';
+        return `<a href="${link}" class="ss-item"><span class="ss-icon">${icon}</span><span>${escapeHtml(it.text)}</span></a>`;
+      }).join('');
+      searchSuggest.classList.add('open');
+    }, 150);
+  });
+  searchInput.addEventListener('blur', () => setTimeout(() => searchSuggest.classList.remove('open'), 200));
+  searchInput.addEventListener('focus', () => { if (searchSuggest.innerHTML) searchSuggest.classList.add('open'); });
+}
+
+/* ========= CHAPTERS (timestamps dans description) ========= */
+const desc = document.getElementById('videoDescription');
+const chaptersList = document.getElementById('chaptersList');
+if (desc && chaptersList && player) {
+  const text = desc.textContent;
+  const re = /(?:^|\n)\s*(\d{1,2}(?::\d{2}){1,2})\s+([^\n]+)/g;
+  const chapters = [];
+  let m;
+  while ((m = re.exec(text)) !== null) {
+    chapters.push({ts: parseTs(m[1]), label: m[2].trim(), raw: m[1]});
+  }
+  if (chapters.length >= 2) {
+    desc.innerHTML = desc.innerHTML.replace(/(\d{1,2}(?::\d{2}){1,2})/g, (ts) => {
+      return `<a href="#" class="ts-link" data-t="${parseTs(ts)}">${ts}</a>`;
+    });
+    desc.querySelectorAll('.ts-link').forEach(a => {
+      a.addEventListener('click', e => { e.preventDefault(); player.currentTime = +a.dataset.t; player.play(); });
+    });
+    chaptersList.innerHTML = '<h4>Chapitres</h4>' + chapters.map(c => `
+      <button class="chapter" data-t="${c.ts}">
+        <span class="ch-time">${c.raw}</span>
+        <span class="ch-label">${escapeHtml(c.label)}</span>
+      </button>
+    `).join('');
+    chaptersList.querySelectorAll('.chapter').forEach(b => {
+      b.addEventListener('click', () => { player.currentTime = +b.dataset.t; player.play(); });
+    });
+  }
+}
+function parseTs(s) {
+  const parts = s.split(':').map(Number);
+  if (parts.length === 3) return parts[0]*3600 + parts[1]*60 + parts[2];
+  return parts[0]*60 + parts[1];
+}
+
+/* ========= QUALITY SELECTOR ========= */
+const qs = document.getElementById('qualitySelector');
+if (qs && window.AUBE_VIDEO_QUALITIES) {
+  const quals = window.AUBE_VIDEO_QUALITIES.split(',').filter(Boolean);
+  if (quals.length) {
+    qs.innerHTML = '<button class="q-btn">Auto ⚙</button><div class="q-menu">' +
+      ['auto', ...quals].map(q => `<button data-q="${q}">${q}</button>`).join('') + '</div>';
+    qs.querySelector('.q-btn').addEventListener('click', () => qs.classList.toggle('open'));
+    qs.querySelectorAll('.q-menu button').forEach(b => {
+      b.addEventListener('click', () => {
+        const q = b.dataset.q;
+        const src = document.getElementById('playerSource');
+        const t = player.currentTime;
+        const base = src.src.split('?')[0];
+        src.src = q === 'auto' ? base : base + '?q=' + q;
+        player.load();
+        player.currentTime = t;
+        player.play();
+        qs.querySelector('.q-btn').textContent = q + ' ⚙';
+        qs.classList.remove('open');
+      });
+    });
+  }
+}
+
+/* ========= CAPTIONS UPLOAD MODAL ========= */
+function openCaptionsUpload(videoId) {
+  const root = document.getElementById('modalRoot');
+  root.innerHTML = `
+    <div class="modal-bg" onclick="if(event.target===this)closeModal()">
+      <div class="modal">
+        <h3>Ajouter des sous-titres</h3>
+        <form id="capForm" enctype="multipart/form-data">
+          <label class="field">
+            <span>Langue (code)</span>
+            <input type="text" name="lang" value="fr" maxlength="10">
+          </label>
+          <label class="field">
+            <span>Libellé</span>
+            <input type="text" name="label" value="Français" maxlength="64">
+          </label>
+          <label class="field">
+            <span>Fichier .vtt ou .srt</span>
+            <input type="file" name="file" accept=".vtt,.srt" required>
+          </label>
+          <div class="form-actions">
+            <button type="button" class="btn-ghost" onclick="closeModal()">Annuler</button>
+            <button type="submit" class="btn btn-primary">Téléverser</button>
+          </div>
+        </form>
+      </div>
+    </div>`;
+  document.getElementById('capForm').addEventListener('submit', async e => {
+    e.preventDefault();
+    const fd = new FormData(e.target);
+    const r = await fetch('/api/video/' + videoId + '/captions',
+      {method: 'POST', headers: {'X-CSRF-Token': getCsrf()}, body: fd});
+    if (r.ok) { closeModal(); location.reload(); }
+    else alert('Erreur');
+  });
+}
+
+/* ========= PIN / HEART COMMENTS ========= */
+async function pinComment(commentId) {
+  const r = await fetch('/api/comment/' + commentId + '/pin',
+    {method: 'POST', headers: jsonHeaders()});
+  if (r.ok) location.reload();
+}
+async function heartComment(commentId) {
+  const r = await fetch('/api/comment/' + commentId + '/heart',
+    {method: 'POST', headers: jsonHeaders()});
+  if (r.ok) location.reload();
+}
+
+/* ========= WEB PUSH ========= */
+async function enablePushNotifications() {
+  if (!('serviceWorker' in navigator) || !('PushManager' in window)) return;
+  const reg = await navigator.serviceWorker.ready;
+  const r = await fetch('/api/push/key');
+  const {key} = await r.json();
+  if (!key) return;
+  const sub = await reg.pushManager.subscribe({
+    userVisibleOnly: true,
+    applicationServerKey: urlB64ToUint8Array(key),
+  });
+  await fetch('/api/push/subscribe',
+    {method: 'POST', headers: jsonHeaders(), body: JSON.stringify(sub)});
+}
+function urlB64ToUint8Array(b64) {
+  const pad = '='.repeat((4 - b64.length % 4) % 4);
+  const b = (b64 + pad).replace(/-/g, '+').replace(/_/g, '/');
+  const raw = atob(b);
+  return new Uint8Array([...raw].map(c => c.charCodeAt(0)));
+}

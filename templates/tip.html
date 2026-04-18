@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+{% block title %}Soutenir {{ creator.display_name }} — AubeVideo{% endblock %}
+{% block content %}
+<div class="container-narrow">
+  <h1>☕ Soutenir {{ creator.display_name }}</h1>
+  <p class="subtitle">Un petit don pour encourager le créateur. Paiement sécurisé par Stripe.</p>
+
+  <form method="post" class="upload-form">
+    <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
+    <div class="tip-amounts">
+      {% for a in [2,5,10,20,50] %}
+        <label class="tip-amount">
+          <input type="radio" name="amount" value="{{ a }}" {% if a==5 %}checked{% endif %}>
+          <span>{{ a }} €</span>
+        </label>
+      {% endfor %}
+    </div>
+    <label class="field">
+      <span>Message (facultatif)</span>
+      <textarea name="message" rows="3" maxlength="500" placeholder="Un petit mot..."></textarea>
+    </label>
+    <div class="form-actions">
+      <a href="{{ url_for('channel', username=creator.username) }}" class="btn-ghost">Annuler</a>
+      <button type="submit" class="btn btn-primary">Payer avec Stripe</button>
+    </div>
+  </form>
+</div>
+{% endblock %}
