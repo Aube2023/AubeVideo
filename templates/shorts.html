@@ -4,11 +4,12 @@
 <div class="shorts-feed" id="shortsFeed">
   {% for v in videos %}
     <div class="short-slide" data-id="{{ v.id }}">
-      <video loop playsinline preload="metadata" poster="{{ url_for('thumbnail', video_id=v.id) }}">
+      <video loop playsinline muted preload="metadata" poster="{{ url_for('thumbnail', video_id=v.id) }}">
         <source src="{{ url_for('stream', video_id=v.id) }}" type="{{ v.mime_type }}">
       </video>
       <div class="short-overlay">
         <div class="short-actions">
+          <button class="short-btn" onclick="toggleMuteShort(this)" title="Son">🔇</button>
           <button class="short-btn" onclick="likeShort({{ v.id }}, this)">
             ❤ <span>{{ v.likes_count|count }}</span>
           </button>
@@ -39,6 +40,12 @@ const obs = new IntersectionObserver((entries) => {
   });
 }, {threshold: 0.7});
 slides.forEach(s => obs.observe(s));
+
+function toggleMuteShort(btn) {
+  const video = btn.closest('.short-slide').querySelector('video');
+  video.muted = !video.muted;
+  btn.textContent = video.muted ? '🔇' : '🔊';
+}
 
 async function likeShort(id, btn) {
   const r = await fetch('/api/video/' + id + '/react', {

@@ -208,13 +208,20 @@ def login():
             return render_template("login.html")
         uid = ensure_user(username, display_name=username)
         with db_cursor() as cur:
-            cur.execute("SELECT is_banned FROM users WHERE id = %s", (uid,))
+            cur.execute("SELECT is_banned, totp_enabled FROM users WHERE id = %s", (uid,))
             row = cur.fetchone()
             if row and row["is_banned"]:
                 flash("Ce compte a été suspendu.", "error")
                 return render_template("login.html")
+
+        # Si 2FA activé : login en 2 étapes
+        if row and row["totp_enabled"]:
+            session["_pending_uid"] = uid
+            session["_pending_username"] = username
+            session["_pending_next"] = request.args.get("next") or url_for("home")
+            return redirect(url_for("login_2fa"))
+
         session.permanent = True
-        # Évite un cache is_admin stale d'un ancien user
         session.pop("is_admin", None)
         session.pop("viewed", None)
         session["user_id"] = uid
@@ -227,6 +234,35 @@ def login():
             nxt = url_for("home")
         return redirect(nxt)
     return render_template("login.html")
+
+
+@app.route("/login/2fa", methods=["GET", "POST"])
+def login_2fa():
+    uid = session.get("_pending_uid")
+    if not uid:
+        return redirect(url_for("login"))
+    if request.method == "POST":
+        code = (request.form.get("code") or "").strip()
+        with db_cursor() as cur:
+            cur.execute("SELECT totp_secret FROM users WHERE id = %s", (uid,))
+            r = cur.fetchone()
+        if not r or not totp.verify(r["totp_secret"], code):
+            flash("Code 2FA invalide.", "error")
+            return render_template("login_2fa.html")
+        nxt = session.pop("_pending_next", url_for("home"))
+        uname = session.pop("_pending_username", "")
+        session.pop("_pending_uid", None)
+        session.permanent = True
+        session.pop("is_admin", None)
+        session.pop("viewed", None)
+        session["user_id"] = uid
+        session["username"] = uname
+        session["display_name"] = uname
+        flash("Connecté.", "success")
+        if not nxt.startswith("/"):
+            nxt = url_for("home")
+        return redirect(nxt)
+    return render_template("login_2fa.html")
 
 
 @app.route("/logout", methods=["POST"])
@@ -615,17 +651,14 @@ def embed(video_id):
         v = cur.fetchone()
     if not v or v["visibility"] == "private":
         abort(404)
-    resp = Response(render_template("embed.html", video=v))
-    resp.headers.pop("X-Frame-Options", None)
-    resp.headers["Content-Security-Policy"] = "frame-ancestors *"
-    return resp
+    return render_template("embed.html", video=v)
 
 
 @app.route("/stream/<int:video_id>")
 def stream(video_id):
     with db_cursor() as cur:
         cur.execute(
-            """SELECT user_id, filename, mime_type, visibility, is_removed
+            """SELECT user_id, filename, mime_type, visibility, is_removed, qualities
                FROM videos WHERE id = %s""",
             (video_id,),
         )
@@ -636,7 +669,17 @@ def stream(video_id):
         if not session.get("user_id") or session["user_id"] != v["user_id"]:
             abort(403)
 
-    path = user_dir(v["user_id"]) / "videos" / v["filename"]
+    # Sélection de qualité (?q=720p)
+    q = (request.args.get("q") or "").strip()
+    available = [x for x in (v["qualities"] or "").split(",") if x]
+    filename = v["filename"]
+    if q and q in available:
+        base = Path(v["filename"]).stem
+        candidate = user_dir(v["user_id"]) / "videos" / f"{base}_{q}.mp4"
+        if candidate.exists():
+            filename = candidate.name
+
+    path = user_dir(v["user_id"]) / "videos" / filename
     if not path.exists():
         abort(404)
 
@@ -1292,9 +1335,21 @@ def delete_video(video_id):
         if v["user_id"] != uid and not (a and a["is_admin"]):
             return jsonify({"error": "interdit"}), 403
         try:
-            (user_dir(v["user_id"]) / "videos" / v["filename"]).unlink(missing_ok=True)
+            ud = user_dir(v["user_id"])
+            source = ud / "videos" / v["filename"]
+            source.unlink(missing_ok=True)
+            # Nettoie les versions transcodées _360p/_480p/_720p
+            stem = Path(v["filename"]).stem
+            for quality_file in (ud / "videos").glob(f"{stem}_*p.mp4"):
+                quality_file.unlink(missing_ok=True)
             if v["thumbnail"]:
-                (user_dir(v["user_id"]) / "thumbs" / v["thumbnail"]).unlink(missing_ok=True)
+                (ud / "thumbs" / v["thumbnail"]).unlink(missing_ok=True)
+            # Captions associés
+            cur.execute(
+                "SELECT filename FROM captions WHERE video_id = %s", (video_id,)
+            )
+            for cap in cur.fetchall():
+                (ud / "captions" / cap["filename"]).unlink(missing_ok=True)
         except Exception:
             pass
         cur.execute("DELETE FROM videos WHERE id = %s", (video_id,))
@@ -1510,19 +1565,20 @@ def suggest():
         return jsonify(hit)
     with db_cursor() as cur:
         cur.execute(
-            """(SELECT title AS text, 'video' AS kind, id
+            """(SELECT title AS text, 'video' AS kind, id::text AS id, ''::text AS username
                 FROM videos
                 WHERE visibility = 'public' AND is_removed = FALSE AND title ILIKE %s
                 ORDER BY views DESC LIMIT 6)
                UNION ALL
-               (SELECT display_name AS text, 'channel' AS kind, id
+               (SELECT display_name AS text, 'channel' AS kind, id::text AS id, username
                 FROM users
                 WHERE (display_name ILIKE %s OR username ILIKE %s) AND is_banned = FALSE
                 LIMIT 4)""",
             (like, wlike, wlike),
         )
         rows = cur.fetchall()
-    out = [{"text": r["text"], "kind": r["kind"], "id": r["id"]} for r in rows]
+    out = [{"text": r["text"], "kind": r["kind"], "id": r["id"],
+            "username": r["username"]} for r in rows]
     cache.set(key, out, ttl=60)
     return jsonify(out)
 
@@ -1898,9 +1954,8 @@ def manifest():
         "theme_color": "#e8b84a",
         "lang": "fr",
         "icons": [
-            {"src": "/static/img/logo.svg", "sizes": "any", "type": "image/svg+xml"},
-            {"src": "/static/img/icon-192.png", "sizes": "192x192", "type": "image/png"},
-            {"src": "/static/img/icon-512.png", "sizes": "512x512", "type": "image/png"},
+            {"src": "/static/img/logo.svg", "sizes": "any",
+             "type": "image/svg+xml", "purpose": "any maskable"},
         ],
     })
 

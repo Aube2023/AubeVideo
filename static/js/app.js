@@ -465,7 +465,9 @@ if (searchInput && searchSuggest) {
       const items = await r.json();
       if (!items.length) { searchSuggest.innerHTML = ''; searchSuggest.classList.remove('open'); return; }
       searchSuggest.innerHTML = items.map(it => {
-        const link = it.kind === 'channel' ? `/c/${encodeURIComponent(it.text)}` : `/search?q=${encodeURIComponent(it.text)}`;
+        const link = it.kind === 'channel'
+          ? `/c/${encodeURIComponent(it.username)}`
+          : `/watch/${encodeURIComponent(it.id)}`;
         const icon = it.kind === 'channel' ? '👤' : '▶';
         return `<a href="${link}" class="ss-item"><span class="ss-icon">${icon}</span><span>${escapeHtml(it.text)}</span></a>`;
       }).join('');
@@ -524,11 +526,14 @@ if (qs && window.AUBE_VIDEO_QUALITIES) {
         const q = b.dataset.q;
         const src = document.getElementById('playerSource');
         const t = player.currentTime;
+        const wasPlaying = !player.paused;
         const base = src.src.split('?')[0];
         src.src = q === 'auto' ? base : base + '?q=' + q;
         player.load();
-        player.currentTime = t;
-        player.play();
+        player.addEventListener('loadedmetadata', () => {
+          player.currentTime = t;
+          if (wasPlaying) player.play().catch(()=>{});
+        }, {once: true});
         qs.querySelector('.q-btn').textContent = q + ' ⚙';
         qs.classList.remove('open');
       });

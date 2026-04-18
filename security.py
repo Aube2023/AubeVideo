@@ -109,11 +109,16 @@ def security_headers(app):
     @app.after_request
     def _apply(resp):
         resp.headers.setdefault("X-Content-Type-Options", "nosniff")
-        resp.headers.setdefault("X-Frame-Options", "DENY")
         resp.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
         resp.headers.setdefault("Permissions-Policy",
                                  "camera=(), microphone=(), geolocation=()")
-        resp.headers.setdefault("Content-Security-Policy", csp)
+        # Embeds: autorise l'iframe externe (pas de X-Frame / CSP frame-ancestors libre)
+        is_embed = request.path.startswith("/embed/")
+        if not is_embed:
+            resp.headers.setdefault("X-Frame-Options", "DENY")
+            resp.headers.setdefault("Content-Security-Policy", csp)
+        else:
+            resp.headers.setdefault("Content-Security-Policy", "frame-ancestors *")
         if request.is_secure or request.headers.get("X-Forwarded-Proto") == "https":
             resp.headers.setdefault(
                 "Strict-Transport-Security", "max-age=31536000; includeSubDomains"
