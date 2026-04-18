@@ -7,8 +7,16 @@ import os
 import re
 import uuid
 import mimetypes
+import logging
+import logging.handlers
 from datetime import datetime
 from pathlib import Path
+
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except Exception:
+    pass
 
 from flask import (
     Flask, render_template, request, redirect, url_for, session,
@@ -19,6 +27,12 @@ from PIL import Image
 
 from db import db_cursor, init_db, ensure_user
 from auth import pam_authenticate, login_required, current_user
+from security import (
+    csrf_protect, security_headers, configure_session,
+    rate_limit, throttle_login, generate_csrf_token,
+)
+from media import generate_thumbnail, probe_metadata
+import notify
 
 # ---------- Configuration ----------
 BASE_DIR = Path(__file__).parent.resolve()
@@ -33,6 +47,23 @@ USER_QUOTA = int(os.environ.get("AUBEVIDEO_QUOTA", 10 * 1024 * 1024 * 1024))  # 
 app = Flask(__name__)
 app.secret_key = os.environ.get("AUBEVIDEO_SECRET", "change-me-in-prod-" + uuid.uuid4().hex)
 app.config["MAX_CONTENT_LENGTH"] = MAX_VIDEO_SIZE
+app.jinja_env.autoescape = True
+
+configure_session(app)
+csrf_protect(app)
+security_headers(app)
+
+# ---------- Logging ----------
+log_dir = Path(os.environ.get("AUBEVIDEO_LOG_DIR", BASE_DIR / "logs"))
+log_dir.mkdir(parents=True, exist_ok=True)
+handler = logging.handlers.RotatingFileHandler(
+    log_dir / "aubevideo.log", maxBytes=10 * 1024 * 1024, backupCount=5
+)
+handler.setFormatter(logging.Formatter(
+    "%(asctime)s [%(levelname)s] %(name)s: %(message)s"
+))
+app.logger.addHandler(handler)
+app.logger.setLevel(logging.INFO)
 
 
 # ---------- Helpers ----------
@@ -42,9 +73,8 @@ def allowed_file(filename, exts):
 
 def user_dir(user_id):
     d = UPLOAD_DIR / str(user_id)
-    (d / "videos").mkdir(parents=True, exist_ok=True)
-    (d / "thumbs").mkdir(parents=True, exist_ok=True)
-    (d / "avatars").mkdir(parents=True, exist_ok=True)
+    for sub in ("videos", "thumbs", "avatars", "banners"):
+        (d / sub).mkdir(parents=True, exist_ok=True)
     return d
 
 
@@ -104,8 +134,22 @@ app.jinja_env.filters["duration"] = format_duration
 
 @app.context_processor
 def inject_globals():
+    uid = session.get("user_id")
+    n_unread = notify.unread_count(uid) if uid else 0
+    user_obj = current_user()
+    is_admin = False
+    if uid:
+        try:
+            with db_cursor() as cur:
+                cur.execute("SELECT is_admin FROM users WHERE id = %s", (uid,))
+                r = cur.fetchone()
+                is_admin = bool(r and r["is_admin"])
+        except Exception:
+            pass
     return {
-        "current_user": current_user(),
+        "current_user": user_obj,
+        "is_admin": is_admin,
+        "unread_notifs": n_unread,
         "CATEGORIES": [
             "Général", "Musique", "Gaming", "Actualités", "Sport",
             "Éducation", "Science", "Humour", "Film", "Voyage",
@@ -114,26 +158,49 @@ def inject_globals():
     }
 
 
+# ---------- Pagination helper ----------
+def _pagination(page, per_page=24):
+    try:
+        page = max(1, int(page or 1))
+    except ValueError:
+        page = 1
+    return page, (page - 1) * per_page, per_page
+
+
 # ---------- Auth routes ----------
 @app.route("/login", methods=["GET", "POST"])
 def login():
     if request.method == "POST":
-        username = (request.form.get("username") or "").strip()
+        username = (request.form.get("username") or "").strip().lower()
         password = request.form.get("password") or ""
+        if not throttle_login(username):
+            flash("Trop de tentatives. Réessayez dans quelques minutes.", "error")
+            return render_template("login.html")
         if not pam_authenticate(username, password):
+            app.logger.warning("Login échoué pour %s (%s)", username, request.remote_addr)
             flash("Identifiants invalides.", "error")
             return render_template("login.html")
         uid = ensure_user(username, display_name=username)
+        with db_cursor() as cur:
+            cur.execute("SELECT is_banned FROM users WHERE id = %s", (uid,))
+            row = cur.fetchone()
+            if row and row["is_banned"]:
+                flash("Ce compte a été suspendu.", "error")
+                return render_template("login.html")
+        session.permanent = True
         session["user_id"] = uid
         session["username"] = username
         session["display_name"] = username
+        app.logger.info("Connexion de %s", username)
         flash("Connecté.", "success")
         nxt = request.args.get("next") or url_for("home")
+        if not nxt.startswith("/"):
+            nxt = url_for("home")
         return redirect(nxt)
     return render_template("login.html")
 
 
-@app.route("/logout")
+@app.route("/logout", methods=["GET", "POST"])
 def logout():
     session.clear()
     flash("Déconnecté.", "success")
@@ -144,18 +211,24 @@ def logout():
 @app.route("/")
 def home():
     category = request.args.get("c")
+    page, offset, per = _pagination(request.args.get("page"), per_page=36)
     with db_cursor() as cur:
         sql = """SELECT v.*, u.username, u.display_name, u.avatar_url
                  FROM videos v JOIN users u ON v.user_id = u.id
-                 WHERE v.visibility = 'public'"""
+                 WHERE v.visibility = 'public' AND v.is_removed = FALSE"""
         params = []
         if category and category != "Toutes":
             sql += " AND v.category = %s"
             params.append(category)
-        sql += " ORDER BY v.created_at DESC LIMIT 60"
+        sql += " ORDER BY v.created_at DESC LIMIT %s OFFSET %s"
+        params.extend([per, offset])
         cur.execute(sql, params)
         videos = cur.fetchall()
-    return render_template("index.html", videos=videos, active_category=category or "Toutes")
+    return render_template("index.html",
+                           videos=videos,
+                           active_category=category or "Toutes",
+                           page=page,
+                           has_more=len(videos) == per)
 
 
 @app.route("/trending")
@@ -164,11 +237,13 @@ def trending():
         cur.execute(
             """SELECT v.*, u.username, u.display_name, u.avatar_url
                FROM videos v JOIN users u ON v.user_id = u.id
-               WHERE v.visibility = 'public'
+               WHERE v.visibility = 'public' AND v.is_removed = FALSE
                ORDER BY v.views DESC, v.created_at DESC LIMIT 60"""
         )
         videos = cur.fetchall()
-    return render_template("index.html", videos=videos, active_category="Tendances", title="Tendances")
+    return render_template("index.html", videos=videos,
+                           active_category="Tendances", title="Tendances",
+                           page=1, has_more=False)
 
 
 @app.route("/subscriptions")
@@ -182,11 +257,14 @@ def subscriptions_feed():
                JOIN users u ON v.user_id = u.id
                JOIN subscriptions s ON s.channel_id = u.id
                WHERE s.subscriber_id = %s AND v.visibility = 'public'
+                     AND v.is_removed = FALSE
                ORDER BY v.created_at DESC LIMIT 100""",
             (uid,),
         )
         videos = cur.fetchall()
-    return render_template("index.html", videos=videos, active_category="Abonnements", title="Abonnements")
+    return render_template("index.html", videos=videos,
+                           active_category="Abonnements", title="Abonnements",
+                           page=1, has_more=False)
 
 
 @app.route("/history")
@@ -199,43 +277,74 @@ def history():
                FROM watch_history h
                JOIN videos v ON h.video_id = v.id
                JOIN users u ON v.user_id = u.id
-               WHERE h.user_id = %s
+               WHERE h.user_id = %s AND v.is_removed = FALSE
                ORDER BY h.watched_at DESC LIMIT 60""",
             (uid,),
         )
         videos = cur.fetchall()
-    return render_template("index.html", videos=videos, active_category="Historique", title="Historique")
+    return render_template("index.html", videos=videos,
+                           active_category="Historique", title="Historique",
+                           page=1, has_more=False)
+
+
+@app.route("/watch-later")
+@login_required
+def watch_later_page():
+    uid = session["user_id"]
+    with db_cursor() as cur:
+        cur.execute(
+            """SELECT v.*, u.username, u.display_name, u.avatar_url
+               FROM watch_later w
+               JOIN videos v ON w.video_id = v.id
+               JOIN users u ON v.user_id = u.id
+               WHERE w.user_id = %s AND v.is_removed = FALSE
+               ORDER BY w.added_at DESC""",
+            (uid,),
+        )
+        videos = cur.fetchall()
+    return render_template("index.html", videos=videos,
+                           active_category="À regarder plus tard",
+                           title="À regarder plus tard",
+                           page=1, has_more=False)
 
 
 # ---------- Search ----------
 @app.route("/search")
 def search():
     q = (request.args.get("q") or "").strip()
+    sort = request.args.get("sort", "relevance")
     videos = []
     channels = []
     if q:
         like = f"%{q}%"
+        order = {
+            "date": "v.created_at DESC",
+            "views": "v.views DESC",
+            "relevance": "v.views DESC",
+        }.get(sort, "v.views DESC")
         with db_cursor() as cur:
             cur.execute(
-                """SELECT v.*, u.username, u.display_name, u.avatar_url
+                f"""SELECT v.*, u.username, u.display_name, u.avatar_url
                    FROM videos v JOIN users u ON v.user_id = u.id
-                   WHERE v.visibility = 'public'
+                   WHERE v.visibility = 'public' AND v.is_removed = FALSE
                      AND (v.title ILIKE %s OR v.description ILIKE %s
                           OR v.tags ILIKE %s OR u.username ILIKE %s
                           OR u.display_name ILIKE %s)
-                   ORDER BY v.views DESC LIMIT 60""",
+                   ORDER BY {order} LIMIT 60""",
                 (like, like, like, like, like),
             )
             videos = cur.fetchall()
             cur.execute(
                 """SELECT id, username, display_name, avatar_url, subscriber_count, bio
                    FROM users
-                   WHERE username ILIKE %s OR display_name ILIKE %s
+                   WHERE (username ILIKE %s OR display_name ILIKE %s)
+                     AND is_banned = FALSE
                    LIMIT 20""",
                 (like, like),
             )
             channels = cur.fetchall()
-    return render_template("search.html", q=q, videos=videos, channels=channels)
+    return render_template("search.html", q=q, sort=sort,
+                           videos=videos, channels=channels)
 
 
 # ---------- Upload ----------
@@ -249,11 +358,13 @@ def upload():
         category = request.form.get("category") or "Général"
         tags = request.form.get("tags") or ""
         visibility = request.form.get("visibility") or "public"
+        if visibility not in ("public", "unlisted", "private"):
+            visibility = "public"
         video_file = request.files.get("video")
         thumb_file = request.files.get("thumbnail")
 
-        if not title:
-            flash("Le titre est obligatoire.", "error")
+        if not title or len(title) > 255:
+            flash("Titre manquant ou trop long.", "error")
             return redirect(url_for("upload"))
         if not video_file or not allowed_file(video_file.filename, ALLOWED_VIDEO_EXTS):
             flash("Fichier vidéo invalide.", "error")
@@ -268,10 +379,13 @@ def upload():
         size = video_path.stat().st_size
         mime = mimetypes.guess_type(video_filename)[0] or "video/mp4"
 
+        meta = probe_metadata(video_path)
+        duration = meta.get("duration", 0)
+
         thumb_name = ""
         if thumb_file and allowed_file(thumb_file.filename, ALLOWED_IMAGE_EXTS):
-            text = thumb_file.filename.rsplit(".", 1)[1].lower()
-            thumb_name = f"{video_id_str}.{text}"
+            timg = thumb_file.filename.rsplit(".", 1)[1].lower()
+            thumb_name = f"{video_id_str}.{timg}"
             thumb_path = ud / "thumbs" / thumb_name
             thumb_file.save(str(thumb_path))
             try:
@@ -280,17 +394,35 @@ def upload():
                 img.save(thumb_path)
             except Exception:
                 pass
+        else:
+            thumb_name = f"{video_id_str}.jpg"
+            thumb_path = ud / "thumbs" / thumb_name
+            ts = max(1, min(duration // 2, 10))
+            if not generate_thumbnail(video_path, thumb_path, ts):
+                thumb_name = ""
 
         with db_cursor(commit=True) as cur:
             cur.execute(
                 """INSERT INTO videos (user_id, title, description, filename,
-                   thumbnail, file_size, mime_type, category, visibility, tags)
-                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                   thumbnail, duration, file_size, mime_type, category, visibility, tags)
+                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                    RETURNING id""",
                 (uid, title, description, video_filename, thumb_name,
-                 size, mime, category, visibility, tags),
+                 duration, size, mime, category, visibility, tags),
             )
             vid = cur.fetchone()["id"]
+
+            if visibility == "public":
+                cur.execute(
+                    "SELECT display_name FROM users WHERE id = %s", (uid,)
+                )
+                chan = cur.fetchone()
+                notify.notify_subscribers_of_new_video(
+                    cur, uid, chan["display_name"], vid, title
+                )
+
+        app.logger.info("Upload: user=%s video=%s size=%s duration=%s",
+                        uid, vid, size, duration)
         flash("Vidéo publiée !", "success")
         return redirect(url_for("watch", video_id=vid))
 
@@ -300,12 +432,12 @@ def upload():
 # ---------- Watch ----------
 @app.route("/watch/<int:video_id>")
 def watch(video_id):
-    with db_cursor() as cur:
+    with db_cursor(commit=True) as cur:
         cur.execute(
             """SELECT v.*, u.username, u.display_name, u.avatar_url,
                       u.subscriber_count, u.bio
                FROM videos v JOIN users u ON v.user_id = u.id
-               WHERE v.id = %s""",
+               WHERE v.id = %s AND v.is_removed = FALSE""",
             (video_id,),
         )
         video = cur.fetchone()
@@ -333,6 +465,8 @@ def watch(video_id):
 
         user_reaction = None
         is_subscribed = False
+        in_watch_later = False
+        my_playlists = []
         if uid:
             cur.execute(
                 "SELECT reaction FROM video_reactions WHERE user_id = %s AND video_id = %s",
@@ -345,12 +479,27 @@ def watch(video_id):
                 (uid, video["user_id"]),
             )
             is_subscribed = cur.fetchone() is not None
+            cur.execute(
+                "SELECT 1 FROM watch_later WHERE user_id = %s AND video_id = %s",
+                (uid, video_id),
+            )
+            in_watch_later = cur.fetchone() is not None
+            cur.execute(
+                """SELECT p.id, p.title,
+                          EXISTS(SELECT 1 FROM playlist_videos pv
+                                 WHERE pv.playlist_id = p.id AND pv.video_id = %s) AS has_video
+                   FROM playlists p WHERE p.user_id = %s
+                   ORDER BY p.created_at DESC""",
+                (video_id, uid),
+            )
+            my_playlists = cur.fetchall()
 
         cur.execute(
-            """SELECT c.*, u.username, u.display_name, u.avatar_url
+            """SELECT c.*, u.username, u.display_name, u.avatar_url,
+                      (SELECT COUNT(*) FROM comments r WHERE r.parent_id = c.id) AS reply_count
                FROM comments c JOIN users u ON c.user_id = u.id
-               WHERE c.video_id = %s AND c.parent_id IS NULL
-               ORDER BY c.created_at DESC""",
+               WHERE c.video_id = %s AND c.parent_id IS NULL AND c.is_removed = FALSE
+               ORDER BY c.likes_count DESC, c.created_at DESC""",
             (video_id,),
         )
         comments = cur.fetchall()
@@ -358,11 +507,23 @@ def watch(video_id):
         cur.execute(
             """SELECT v.*, u.username, u.display_name, u.avatar_url
                FROM videos v JOIN users u ON v.user_id = u.id
-               WHERE v.visibility = 'public' AND v.id <> %s
+               WHERE v.visibility = 'public' AND v.is_removed = FALSE
+                     AND v.id <> %s
+                     AND (v.category = %s OR v.user_id = %s)
                ORDER BY v.views DESC LIMIT 20""",
-            (video_id,),
+            (video_id, video["category"], video["user_id"]),
         )
         suggestions = cur.fetchall()
+        if len(suggestions) < 10:
+            cur.execute(
+                """SELECT v.*, u.username, u.display_name, u.avatar_url
+                   FROM videos v JOIN users u ON v.user_id = u.id
+                   WHERE v.visibility = 'public' AND v.is_removed = FALSE
+                         AND v.id <> %s
+                   ORDER BY v.views DESC LIMIT 20""",
+                (video_id,),
+            )
+            suggestions = cur.fetchall()
 
     return render_template(
         "watch.html",
@@ -371,6 +532,8 @@ def watch(video_id):
         suggestions=suggestions,
         user_reaction=user_reaction,
         is_subscribed=is_subscribed,
+        in_watch_later=in_watch_later,
+        my_playlists=my_playlists,
     )
 
 
@@ -379,11 +542,12 @@ def watch(video_id):
 def stream(video_id):
     with db_cursor() as cur:
         cur.execute(
-            "SELECT user_id, filename, mime_type, visibility FROM videos WHERE id = %s",
+            """SELECT user_id, filename, mime_type, visibility, is_removed
+               FROM videos WHERE id = %s""",
             (video_id,),
         )
         v = cur.fetchone()
-    if not v:
+    if not v or v["is_removed"]:
         abort(404)
     if v["visibility"] == "private":
         if not session.get("user_id") or session["user_id"] != v["user_id"]:
@@ -425,7 +589,7 @@ def stream(video_id):
     return send_from_directory(path.parent, path.name, mimetype=mime, conditional=True)
 
 
-# ---------- Thumbnails / avatars ----------
+# ---------- Thumbnails / avatars / banners ----------
 @app.route("/thumb/<int:video_id>")
 def thumbnail(video_id):
     with db_cursor() as cur:
@@ -452,9 +616,23 @@ def avatar(username):
     return send_from_directory(path.parent, path.name)
 
 
+@app.route("/banner/<username>")
+def banner(username):
+    with db_cursor() as cur:
+        cur.execute("SELECT id, banner_url FROM users WHERE username = %s", (username,))
+        u = cur.fetchone()
+    if not u or not u["banner_url"]:
+        abort(404)
+    path = user_dir(u["id"]) / "banners" / u["banner_url"]
+    if not path.exists():
+        abort(404)
+    return send_from_directory(path.parent, path.name)
+
+
 # ---------- Profile / channel ----------
 @app.route("/c/<username>")
 def channel(username):
+    tab = request.args.get("tab", "videos")
     with db_cursor() as cur:
         cur.execute("SELECT * FROM users WHERE username = %s", (username,))
         user = cur.fetchone()
@@ -464,10 +642,22 @@ def channel(username):
             """SELECT v.*, u.username, u.display_name, u.avatar_url
                FROM videos v JOIN users u ON v.user_id = u.id
                WHERE v.user_id = %s AND v.visibility = 'public'
+                     AND v.is_removed = FALSE
                ORDER BY v.created_at DESC""",
             (user["id"],),
         )
         videos = cur.fetchall()
+
+        cur.execute(
+            """SELECT p.*, COUNT(pv.id) AS video_count
+               FROM playlists p
+               LEFT JOIN playlist_videos pv ON pv.playlist_id = p.id
+               WHERE p.user_id = %s AND p.visibility = 'public'
+               GROUP BY p.id
+               ORDER BY p.created_at DESC""",
+            (user["id"],),
+        )
+        playlists = cur.fetchall()
 
         is_subscribed = False
         me = session.get("user_id")
@@ -478,7 +668,9 @@ def channel(username):
             )
             is_subscribed = cur.fetchone() is not None
     return render_template(
-        "profile.html", user=user, videos=videos, is_subscribed=is_subscribed
+        "profile.html", user=user, videos=videos,
+        playlists=playlists, tab=tab,
+        is_subscribed=is_subscribed,
     )
 
 
@@ -488,7 +680,8 @@ def studio():
     uid = session["user_id"]
     with db_cursor() as cur:
         cur.execute(
-            """SELECT * FROM videos WHERE user_id = %s ORDER BY created_at DESC""",
+            """SELECT * FROM videos WHERE user_id = %s AND is_removed = FALSE
+               ORDER BY created_at DESC""",
             (uid,),
         )
         videos = cur.fetchall()
@@ -496,7 +689,7 @@ def studio():
             """SELECT COALESCE(SUM(views),0) AS total_views,
                       COUNT(*) AS total_videos,
                       COALESCE(SUM(likes_count),0) AS total_likes
-               FROM videos WHERE user_id = %s""",
+               FROM videos WHERE user_id = %s AND is_removed = FALSE""",
             (uid,),
         )
         stats = cur.fetchone()
@@ -515,31 +708,45 @@ def settings():
     if request.method == "POST":
         display_name = (request.form.get("display_name") or "").strip()
         bio = request.form.get("bio") or ""
-        avatar = request.files.get("avatar")
+        avatar_file = request.files.get("avatar")
+        banner_file = request.files.get("banner")
         avatar_name = None
-        if avatar and allowed_file(avatar.filename, ALLOWED_IMAGE_EXTS):
-            ext = avatar.filename.rsplit(".", 1)[1].lower()
+        banner_name = None
+        if avatar_file and allowed_file(avatar_file.filename, ALLOWED_IMAGE_EXTS):
+            ext = avatar_file.filename.rsplit(".", 1)[1].lower()
             avatar_name = f"avatar.{ext}"
             path = user_dir(uid) / "avatars" / avatar_name
-            avatar.save(str(path))
+            avatar_file.save(str(path))
             try:
                 img = Image.open(path)
                 img.thumbnail((400, 400))
                 img.save(path)
             except Exception:
                 pass
+        if banner_file and allowed_file(banner_file.filename, ALLOWED_IMAGE_EXTS):
+            ext = banner_file.filename.rsplit(".", 1)[1].lower()
+            banner_name = f"banner.{ext}"
+            path = user_dir(uid) / "banners" / banner_name
+            banner_file.save(str(path))
+            try:
+                img = Image.open(path)
+                img.thumbnail((2560, 720))
+                img.save(path)
+            except Exception:
+                pass
         with db_cursor(commit=True) as cur:
+            updates = ["display_name = %s", "bio = %s"]
+            params = [display_name or session["username"], bio]
             if avatar_name:
-                cur.execute(
-                    """UPDATE users SET display_name = %s, bio = %s, avatar_url = %s
-                       WHERE id = %s""",
-                    (display_name or session["username"], bio, avatar_name, uid),
-                )
-            else:
-                cur.execute(
-                    """UPDATE users SET display_name = %s, bio = %s WHERE id = %s""",
-                    (display_name or session["username"], bio, uid),
-                )
+                updates.append("avatar_url = %s")
+                params.append(avatar_name)
+            if banner_name:
+                updates.append("banner_url = %s")
+                params.append(banner_name)
+            params.append(uid)
+            cur.execute(
+                f"UPDATE users SET {', '.join(updates)} WHERE id = %s", params
+            )
         session["display_name"] = display_name or session["username"]
         flash("Profil mis à jour.", "success")
         return redirect(url_for("settings"))
@@ -550,9 +757,43 @@ def settings():
     return render_template("settings.html", user=user)
 
 
+# ---------- Notifications ----------
+@app.route("/notifications")
+@login_required
+def notifications_page():
+    uid = session["user_id"]
+    items = notify.list_recent(uid, limit=100)
+    notify.mark_all_read(uid)
+    return render_template("notifications.html", items=items)
+
+
+@app.route("/api/notifications")
+@login_required
+def api_notifications():
+    uid = session["user_id"]
+    items = notify.list_recent(uid, limit=20)
+    return jsonify([{
+        "id": n["id"],
+        "type": n["type"],
+        "title": n["title"],
+        "body": n["body"],
+        "link": n["link"],
+        "is_read": n["is_read"],
+        "created_at": n["created_at"].isoformat(),
+    } for n in items])
+
+
+@app.route("/api/notifications/read", methods=["POST"])
+@login_required
+def api_notifications_read():
+    notify.mark_all_read(session["user_id"])
+    return jsonify({"ok": True})
+
+
 # ---------- API: reactions / comments / subscribe ----------
 @app.route("/api/video/<int:video_id>/react", methods=["POST"])
 @login_required
+@rate_limit(limit=30, window=60)
 def react(video_id):
     uid = session["user_id"]
     data = request.get_json(silent=True) or {}
@@ -618,13 +859,14 @@ def react(video_id):
 
 @app.route("/api/video/<int:video_id>/comment", methods=["POST"])
 @login_required
+@rate_limit(limit=20, window=60)
 def add_comment(video_id):
     uid = session["user_id"]
     data = request.get_json(silent=True) or {}
     content = (data.get("content") or "").strip()
     parent_id = data.get("parent_id")
-    if not content:
-        return jsonify({"error": "vide"}), 400
+    if not content or len(content) > 5000:
+        return jsonify({"error": "contenu vide ou trop long"}), 400
     with db_cursor(commit=True) as cur:
         cur.execute(
             """INSERT INTO comments (video_id, user_id, parent_id, content)
@@ -641,6 +883,16 @@ def add_comment(video_id):
             (uid,),
         )
         u = cur.fetchone()
+
+        cur.execute(
+            "SELECT user_id, title FROM videos WHERE id = %s", (video_id,)
+        )
+        vid_row = cur.fetchone()
+        if vid_row and vid_row["user_id"] != uid:
+            notify.notify_new_comment(
+                cur, vid_row["user_id"], u["display_name"],
+                video_id, vid_row["title"], content,
+            )
     return jsonify({
         "id": c["id"],
         "content": content,
@@ -650,6 +902,61 @@ def add_comment(video_id):
         "created_at": c["created_at"].isoformat(),
         "parent_id": parent_id,
     })
+
+
+@app.route("/api/comment/<int:comment_id>/replies")
+def comment_replies(comment_id):
+    with db_cursor() as cur:
+        cur.execute(
+            """SELECT c.*, u.username, u.display_name, u.avatar_url
+               FROM comments c JOIN users u ON c.user_id = u.id
+               WHERE c.parent_id = %s AND c.is_removed = FALSE
+               ORDER BY c.created_at ASC""",
+            (comment_id,),
+        )
+        rows = cur.fetchall()
+    return jsonify([{
+        "id": r["id"],
+        "content": r["content"],
+        "username": r["username"],
+        "display_name": r["display_name"],
+        "avatar_url": r["avatar_url"],
+        "likes_count": r["likes_count"],
+        "created_at": r["created_at"].isoformat(),
+    } for r in rows])
+
+
+@app.route("/api/comment/<int:comment_id>/like", methods=["POST"])
+@login_required
+def like_comment(comment_id):
+    uid = session["user_id"]
+    with db_cursor(commit=True) as cur:
+        cur.execute(
+            "SELECT 1 FROM comment_likes WHERE user_id = %s AND comment_id = %s",
+            (uid, comment_id),
+        )
+        exists = cur.fetchone() is not None
+        if exists:
+            cur.execute(
+                "DELETE FROM comment_likes WHERE user_id = %s AND comment_id = %s",
+                (uid, comment_id),
+            )
+            cur.execute(
+                "UPDATE comments SET likes_count = GREATEST(likes_count-1,0) WHERE id = %s",
+                (comment_id,),
+            )
+        else:
+            cur.execute(
+                "INSERT INTO comment_likes (user_id, comment_id) VALUES (%s, %s)",
+                (uid, comment_id),
+            )
+            cur.execute(
+                "UPDATE comments SET likes_count = likes_count + 1 WHERE id = %s",
+                (comment_id,),
+            )
+        cur.execute("SELECT likes_count FROM comments WHERE id = %s", (comment_id,))
+        count = cur.fetchone()["likes_count"]
+    return jsonify({"liked": not exists, "count": count})
 
 
 @app.route("/api/video/<int:video_id>/comment/<int:comment_id>", methods=["DELETE"])
@@ -666,7 +973,10 @@ def delete_comment(video_id, comment_id):
         row = cur.fetchone()
         if not row:
             return jsonify({"error": "introuvable"}), 404
-        if row["user_id"] != uid and row["owner"] != uid:
+        cur.execute("SELECT is_admin FROM users WHERE id = %s", (uid,))
+        admin_row = cur.fetchone()
+        is_admin = bool(admin_row and admin_row["is_admin"])
+        if row["user_id"] != uid and row["owner"] != uid and not is_admin:
             return jsonify({"error": "interdit"}), 403
         cur.execute("DELETE FROM comments WHERE id = %s", (comment_id,))
         cur.execute(
@@ -707,6 +1017,13 @@ def subscribe(channel_id):
                 "UPDATE users SET subscriber_count = subscriber_count + 1 WHERE id = %s",
                 (channel_id,),
             )
+            cur.execute(
+                "SELECT display_name, username FROM users WHERE id = %s", (uid,)
+            )
+            me = cur.fetchone()
+            notify.notify_new_subscriber(
+                cur, channel_id, me["display_name"], me["username"]
+            )
             subscribed = True
         cur.execute(
             "SELECT subscriber_count FROM users WHERE id = %s", (channel_id,)
@@ -715,21 +1032,155 @@ def subscribe(channel_id):
     return jsonify({"subscribed": subscribed, "count": count})
 
 
+# ---------- Watch later ----------
+@app.route("/api/watch-later/<int:video_id>", methods=["POST"])
+@login_required
+def toggle_watch_later(video_id):
+    uid = session["user_id"]
+    with db_cursor(commit=True) as cur:
+        cur.execute(
+            "SELECT 1 FROM watch_later WHERE user_id = %s AND video_id = %s",
+            (uid, video_id),
+        )
+        exists = cur.fetchone() is not None
+        if exists:
+            cur.execute(
+                "DELETE FROM watch_later WHERE user_id = %s AND video_id = %s",
+                (uid, video_id),
+            )
+        else:
+            cur.execute(
+                "INSERT INTO watch_later (user_id, video_id) VALUES (%s, %s)",
+                (uid, video_id),
+            )
+    return jsonify({"saved": not exists})
+
+
+# ---------- Playlists ----------
+@app.route("/playlists")
+@login_required
+def playlists_page():
+    uid = session["user_id"]
+    with db_cursor() as cur:
+        cur.execute(
+            """SELECT p.*, COUNT(pv.id) AS video_count
+               FROM playlists p
+               LEFT JOIN playlist_videos pv ON pv.playlist_id = p.id
+               WHERE p.user_id = %s
+               GROUP BY p.id
+               ORDER BY p.created_at DESC""",
+            (uid,),
+        )
+        items = cur.fetchall()
+    return render_template("playlists.html", playlists=items)
+
+
+@app.route("/playlist/<int:playlist_id>")
+def playlist_view(playlist_id):
+    with db_cursor() as cur:
+        cur.execute(
+            """SELECT p.*, u.username, u.display_name
+               FROM playlists p JOIN users u ON p.user_id = u.id
+               WHERE p.id = %s""",
+            (playlist_id,),
+        )
+        pl = cur.fetchone()
+        if not pl:
+            abort(404)
+        if pl["visibility"] == "private":
+            if not session.get("user_id") or session["user_id"] != pl["user_id"]:
+                abort(403)
+        cur.execute(
+            """SELECT v.*, u.username, u.display_name, u.avatar_url
+               FROM playlist_videos pv
+               JOIN videos v ON pv.video_id = v.id
+               JOIN users u ON v.user_id = u.id
+               WHERE pv.playlist_id = %s AND v.is_removed = FALSE
+               ORDER BY pv.position, pv.added_at""",
+            (playlist_id,),
+        )
+        videos = cur.fetchall()
+    return render_template("playlist.html", playlist=pl, videos=videos)
+
+
+@app.route("/api/playlist", methods=["POST"])
+@login_required
+def create_playlist():
+    uid = session["user_id"]
+    data = request.get_json(silent=True) or {}
+    title = (data.get("title") or "").strip()
+    visibility = data.get("visibility", "public")
+    if not title or visibility not in ("public", "unlisted", "private"):
+        return jsonify({"error": "paramètres invalides"}), 400
+    with db_cursor(commit=True) as cur:
+        cur.execute(
+            """INSERT INTO playlists (user_id, title, visibility)
+               VALUES (%s, %s, %s) RETURNING id""",
+            (uid, title, visibility),
+        )
+        pid = cur.fetchone()["id"]
+    return jsonify({"id": pid, "title": title})
+
+
+@app.route("/api/playlist/<int:playlist_id>/video/<int:video_id>", methods=["POST"])
+@login_required
+def toggle_playlist_video(playlist_id, video_id):
+    uid = session["user_id"]
+    with db_cursor(commit=True) as cur:
+        cur.execute("SELECT user_id FROM playlists WHERE id = %s", (playlist_id,))
+        p = cur.fetchone()
+        if not p or p["user_id"] != uid:
+            return jsonify({"error": "interdit"}), 403
+        cur.execute(
+            "SELECT 1 FROM playlist_videos WHERE playlist_id = %s AND video_id = %s",
+            (playlist_id, video_id),
+        )
+        exists = cur.fetchone() is not None
+        if exists:
+            cur.execute(
+                "DELETE FROM playlist_videos WHERE playlist_id = %s AND video_id = %s",
+                (playlist_id, video_id),
+            )
+        else:
+            cur.execute(
+                "INSERT INTO playlist_videos (playlist_id, video_id) VALUES (%s, %s)",
+                (playlist_id, video_id),
+            )
+    return jsonify({"in_playlist": not exists})
+
+
+@app.route("/api/playlist/<int:playlist_id>", methods=["DELETE"])
+@login_required
+def delete_playlist(playlist_id):
+    uid = session["user_id"]
+    with db_cursor(commit=True) as cur:
+        cur.execute("SELECT user_id FROM playlists WHERE id = %s", (playlist_id,))
+        p = cur.fetchone()
+        if not p or p["user_id"] != uid:
+            return jsonify({"error": "interdit"}), 403
+        cur.execute("DELETE FROM playlists WHERE id = %s", (playlist_id,))
+    return jsonify({"ok": True})
+
+
+# ---------- Video CRUD ----------
 @app.route("/api/video/<int:video_id>", methods=["DELETE"])
 @login_required
 def delete_video(video_id):
     uid = session["user_id"]
     with db_cursor(commit=True) as cur:
-        cur.execute("SELECT user_id, filename, thumbnail FROM videos WHERE id = %s", (video_id,))
+        cur.execute("SELECT user_id, filename, thumbnail FROM videos WHERE id = %s",
+                    (video_id,))
         v = cur.fetchone()
         if not v:
             return jsonify({"error": "introuvable"}), 404
-        if v["user_id"] != uid:
+        cur.execute("SELECT is_admin FROM users WHERE id = %s", (uid,))
+        a = cur.fetchone()
+        if v["user_id"] != uid and not (a and a["is_admin"]):
             return jsonify({"error": "interdit"}), 403
         try:
-            (user_dir(uid) / "videos" / v["filename"]).unlink(missing_ok=True)
+            (user_dir(v["user_id"]) / "videos" / v["filename"]).unlink(missing_ok=True)
             if v["thumbnail"]:
-                (user_dir(uid) / "thumbs" / v["thumbnail"]).unlink(missing_ok=True)
+                (user_dir(v["user_id"]) / "thumbs" / v["thumbnail"]).unlink(missing_ok=True)
         except Exception:
             pass
         cur.execute("DELETE FROM videos WHERE id = %s", (video_id,))
@@ -752,6 +1203,8 @@ def update_video(video_id):
         for k in ("title", "description", "category", "visibility", "tags"):
             if k in data:
                 fields[k] = data[k]
+        if "visibility" in fields and fields["visibility"] not in ("public", "unlisted", "private"):
+            return jsonify({"error": "visibilité invalide"}), 400
         if not fields:
             return jsonify({"ok": True})
         sets = ", ".join(f"{k} = %s" for k in fields)
@@ -760,10 +1213,146 @@ def update_video(video_id):
     return jsonify({"ok": True})
 
 
+# ---------- Signalement / modération ----------
+REPORT_REASONS = [
+    "Contenu inapproprié", "Discours haineux", "Violence",
+    "Spam / arnaque", "Fausses informations", "Harcèlement",
+    "Atteinte aux droits d'auteur", "Autre",
+]
+
+
+@app.route("/api/report", methods=["POST"])
+@login_required
+@rate_limit(limit=5, window=300)
+def create_report():
+    uid = session["user_id"]
+    data = request.get_json(silent=True) or {}
+    target_type = data.get("target_type")
+    target_id = data.get("target_id")
+    reason = data.get("reason")
+    details = (data.get("details") or "")[:2000]
+    if target_type not in ("video", "comment", "user"):
+        return jsonify({"error": "type invalide"}), 400
+    if reason not in REPORT_REASONS:
+        return jsonify({"error": "motif invalide"}), 400
+    try:
+        target_id = int(target_id)
+    except (TypeError, ValueError):
+        return jsonify({"error": "id invalide"}), 400
+    with db_cursor(commit=True) as cur:
+        cur.execute(
+            """INSERT INTO reports (reporter_id, target_type, target_id, reason, details)
+               VALUES (%s, %s, %s, %s, %s)""",
+            (uid, target_type, target_id, reason, details),
+        )
+    app.logger.info("Signalement %s#%s par user %s", target_type, target_id, uid)
+    return jsonify({"ok": True})
+
+
+# ---------- Admin panel ----------
+def admin_required(f):
+    from functools import wraps
+    @wraps(f)
+    def wrapper(*args, **kwargs):
+        uid = session.get("user_id")
+        if not uid:
+            return redirect(url_for("login"))
+        with db_cursor() as cur:
+            cur.execute("SELECT is_admin FROM users WHERE id = %s", (uid,))
+            r = cur.fetchone()
+        if not r or not r["is_admin"]:
+            abort(403)
+        return f(*args, **kwargs)
+    return wrapper
+
+
+@app.route("/admin")
+@admin_required
+def admin_home():
+    with db_cursor() as cur:
+        cur.execute("SELECT COUNT(*) AS c FROM users")
+        users_count = cur.fetchone()["c"]
+        cur.execute("SELECT COUNT(*) AS c FROM videos WHERE is_removed = FALSE")
+        videos_count = cur.fetchone()["c"]
+        cur.execute("SELECT COUNT(*) AS c FROM reports WHERE status = 'pending'")
+        pending_reports = cur.fetchone()["c"]
+        cur.execute(
+            """SELECT r.*, u.username AS reporter
+               FROM reports r JOIN users u ON r.reporter_id = u.id
+               WHERE r.status = 'pending'
+               ORDER BY r.created_at DESC LIMIT 50"""
+        )
+        reports = cur.fetchall()
+    return render_template("admin.html",
+                           users_count=users_count,
+                           videos_count=videos_count,
+                           pending_reports=pending_reports,
+                           reports=reports)
+
+
+@app.route("/api/admin/report/<int:report_id>", methods=["POST"])
+@admin_required
+def handle_report(report_id):
+    data = request.get_json(silent=True) or {}
+    action = data.get("action") or request.form.get("action")
+    uid = session["user_id"]
+    with db_cursor(commit=True) as cur:
+        cur.execute("SELECT * FROM reports WHERE id = %s", (report_id,))
+        r = cur.fetchone()
+        if not r:
+            return jsonify({"error": "introuvable"}), 404
+        if action == "dismiss":
+            cur.execute(
+                "UPDATE reports SET status='dismissed', reviewed_by=%s, reviewed_at=NOW() WHERE id=%s",
+                (uid, report_id),
+            )
+        elif action == "remove":
+            if r["target_type"] == "video":
+                cur.execute("UPDATE videos SET is_removed = TRUE WHERE id = %s",
+                            (r["target_id"],))
+            elif r["target_type"] == "comment":
+                cur.execute("UPDATE comments SET is_removed = TRUE WHERE id = %s",
+                            (r["target_id"],))
+            elif r["target_type"] == "user":
+                cur.execute("UPDATE users SET is_banned = TRUE WHERE id = %s",
+                            (r["target_id"],))
+            cur.execute(
+                "UPDATE reports SET status='actioned', reviewed_by=%s, reviewed_at=NOW() WHERE id=%s",
+                (uid, report_id),
+            )
+        else:
+            return jsonify({"error": "action invalide"}), 400
+    return jsonify({"ok": True})
+
+
+# ---------- Health / monitoring ----------
+@app.route("/health")
+def health():
+    try:
+        with db_cursor() as cur:
+            cur.execute("SELECT 1")
+            cur.fetchone()
+        return jsonify({"status": "ok", "db": "ok", "time": datetime.now().isoformat()})
+    except Exception as e:
+        return jsonify({"status": "degraded", "db": str(e)}), 503
+
+
 @app.errorhandler(413)
 def too_large(e):
     flash("Fichier trop volumineux (max 2 Go).", "error")
     return redirect(url_for("upload"))
+
+
+@app.errorhandler(403)
+def forbidden(e):
+    return render_template("error.html", code=403,
+                           message="Accès refusé."), 403
+
+
+@app.errorhandler(404)
+def not_found(e):
+    return render_template("error.html", code=404,
+                           message="Page introuvable."), 404
 
 
 if __name__ == "__main__":
@@ -772,4 +1361,6 @@ if __name__ == "__main__":
         print("[AubeVideo] Schéma initialisé.")
     except Exception as e:
         print(f"[AubeVideo] init_db skip: {e}")
-    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5017)), debug=True)
+    app.run(host="0.0.0.0",
+            port=int(os.environ.get("PORT", 5017)),
+            debug=os.environ.get("FLASK_DEBUG", "1") == "1")

@@ -12,13 +12,15 @@ DB_PORT = int(os.environ.get("AUBEVIDEO_DB_PORT", "5432"))
 
 
 def get_connection():
-    return psycopg2.connect(
-        dbname=DB_NAME,
-        user=DB_USER,
-        password=DB_PASS,
-        host=DB_HOST,
-        port=DB_PORT,
-    )
+    kwargs = {
+        "dbname": DB_NAME,
+        "user": DB_USER,
+        "host": DB_HOST,
+        "port": DB_PORT,
+    }
+    if DB_PASS:
+        kwargs["password"] = DB_PASS
+    return psycopg2.connect(**kwargs)
 
 
 @contextmanager

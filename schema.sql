@@ -11,8 +11,13 @@ CREATE TABLE IF NOT EXISTS users (
     banner_url VARCHAR(512) DEFAULT '',
     subscriber_count INTEGER DEFAULT 0,
     total_views BIGINT DEFAULT 0,
+    is_admin BOOLEAN DEFAULT FALSE,
+    is_banned BOOLEAN DEFAULT FALSE,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
+-- Migrations rétro-compatibles
+ALTER TABLE users ADD COLUMN IF NOT EXISTS is_admin BOOLEAN DEFAULT FALSE;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS is_banned BOOLEAN DEFAULT FALSE;
 
 CREATE TABLE IF NOT EXISTS videos (
     id SERIAL PRIMARY KEY,
@@ -116,3 +121,42 @@ CREATE TABLE IF NOT EXISTS notifications (
 );
 
 CREATE INDEX IF NOT EXISTS idx_notif_user ON notifications(user_id, created_at DESC);
+
+-- Likes sur commentaires
+CREATE TABLE IF NOT EXISTS comment_likes (
+    id SERIAL PRIMARY KEY,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    comment_id INTEGER NOT NULL REFERENCES comments(id) ON DELETE CASCADE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(user_id, comment_id)
+);
+CREATE INDEX IF NOT EXISTS idx_comment_likes ON comment_likes(comment_id);
+
+-- "À regarder plus tard"
+CREATE TABLE IF NOT EXISTS watch_later (
+    id SERIAL PRIMARY KEY,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    video_id INTEGER NOT NULL REFERENCES videos(id) ON DELETE CASCADE,
+    added_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(user_id, video_id)
+);
+
+-- Signalements (modération)
+CREATE TABLE IF NOT EXISTS reports (
+    id SERIAL PRIMARY KEY,
+    reporter_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    target_type VARCHAR(16) NOT NULL,
+    target_id INTEGER NOT NULL,
+    reason VARCHAR(64) NOT NULL,
+    details TEXT DEFAULT '',
+    status VARCHAR(16) DEFAULT 'pending',
+    reviewed_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    reviewed_at TIMESTAMP,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_reports_status ON reports(status, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_reports_target ON reports(target_type, target_id);
+
+-- Colonnes additionnelles vidéos (migrations safe)
+ALTER TABLE videos ADD COLUMN IF NOT EXISTS is_removed BOOLEAN DEFAULT FALSE;
+ALTER TABLE comments ADD COLUMN IF NOT EXISTS is_removed BOOLEAN DEFAULT FALSE;

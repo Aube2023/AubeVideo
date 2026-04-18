@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+{% block title %}Notifications — AubeVideo{% endblock %}
+{% block content %}
+<div class="container-narrow">
+  <h1>Notifications</h1>
+  {% if items %}
+    <div class="notif-page-list">
+      {% for n in items %}
+        <a href="{{ n.link or '#' }}" class="notif-page-item {% if not n.is_read %}unread{% endif %}">
+          <div class="notif-icon">
+            {% if n.type == 'new_video' %}🎬
+            {% elif n.type == 'new_sub' %}🔔
+            {% elif n.type == 'new_comment' %}💬
+            {% else %}🔔{% endif %}
+          </div>
+          <div class="notif-body">
+            <strong>{{ n.title }}</strong>
+            <div class="notif-sub">{{ n.body }}</div>
+            <div class="notif-time">{{ n.created_at|timeago }}</div>
+          </div>
+        </a>
+      {% endfor %}
+    </div>
+  {% else %}
+    <div class="empty-state"><h3>Aucune notification</h3><p>Vous êtes à jour.</p></div>
+  {% endif %}
+</div>
+{% endblock %}

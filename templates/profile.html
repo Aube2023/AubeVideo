@@ -3,7 +3,7 @@
 {% block content %}
 
 <div class="channel-header">
-  <div class="banner" style="{% if user.banner_url %}background-image:url({{ user.banner_url }}){% endif %}"></div>
+  <div class="banner" {% if user.banner_url %}style="background-image:url({{ url_for('banner', username=user.username) }})"{% endif %}></div>
   <div class="channel-info">
     <img class="channel-avatar" src="{{ url_for('avatar', username=user.username) }}" alt="">
     <div class="channel-meta">
@@ -23,6 +23,7 @@
           <button id="subBtn" class="btn-subscribe {% if is_subscribed %}subscribed{% endif %}" data-channel="{{ user.id }}">
             {{ "Abonné" if is_subscribed else "S'abonner" }}
           </button>
+          <button class="btn-ghost" onclick="openReport('user', {{ user.id }})">⚐ Signaler</button>
         {% elif current_user and current_user.id == user.id %}
           <a href="{{ url_for('settings') }}" class="btn-ghost">✏️ Personnaliser</a>
           <a href="{{ url_for('studio') }}" class="btn-ghost">🎬 Studio</a>
@@ -32,32 +33,60 @@
   </div>
 </div>
 
-<h2 class="section-h">Vidéos</h2>
+<div class="tabs">
+  <a href="?tab=videos" class="tab {% if tab=='videos' %}active{% endif %}">Vidéos</a>
+  <a href="?tab=playlists" class="tab {% if tab=='playlists' %}active{% endif %}">Playlists</a>
+  <a href="?tab=about" class="tab {% if tab=='about' %}active{% endif %}">À propos</a>
+</div>
 
-{% if videos %}
-  <div class="video-grid">
-    {% for v in videos %}
-      <article class="video-card">
-        <a href="{{ url_for('watch', video_id=v.id) }}" class="thumb-wrap">
-          <img class="thumb" src="{{ url_for('thumbnail', video_id=v.id) }}" alt="{{ v.title }}" loading="lazy">
-          {% if v.duration %}<span class="duration">{{ v.duration|duration }}</span>{% endif %}
-        </a>
-        <div class="card-body">
-          <div class="meta">
-            <a href="{{ url_for('watch', video_id=v.id) }}" class="card-title">{{ v.title }}</a>
-            <div class="card-stats">
-              <span>{{ v.views|count }} vues</span>
-              <span>•</span>
-              <span>{{ v.created_at|timeago }}</span>
+{% if tab == 'videos' %}
+  {% if videos %}
+    <div class="video-grid">
+      {% for v in videos %}
+        <article class="video-card">
+          <a href="{{ url_for('watch', video_id=v.id) }}" class="thumb-wrap">
+            <img class="thumb" src="{{ url_for('thumbnail', video_id=v.id) }}" alt="{{ v.title }}" loading="lazy">
+            {% if v.duration %}<span class="duration">{{ v.duration|duration }}</span>{% endif %}
+          </a>
+          <div class="card-body">
+            <div class="meta">
+              <a href="{{ url_for('watch', video_id=v.id) }}" class="card-title">{{ v.title }}</a>
+              <div class="card-stats">
+                <span>{{ v.views|count }} vues</span>
+                <span>•</span>
+                <span>{{ v.created_at|timeago }}</span>
+              </div>
             </div>
           </div>
-        </div>
-      </article>
-    {% endfor %}
-  </div>
+        </article>
+      {% endfor %}
+    </div>
+  {% else %}
+    <div class="empty-state"><h3>Cette chaîne n'a pas encore publié de vidéo.</h3></div>
+  {% endif %}
+{% elif tab == 'playlists' %}
+  {% if playlists %}
+    <div class="video-grid">
+      {% for p in playlists %}
+        <a href="{{ url_for('playlist_view', playlist_id=p.id) }}" class="playlist-card">
+          <div class="pl-thumb">📋</div>
+          <div class="pl-title">{{ p.title }}</div>
+          <div class="pl-count">{{ p.video_count }} vidéo{{ 's' if p.video_count != 1 else '' }}</div>
+        </a>
+      {% endfor %}
+    </div>
+  {% else %}
+    <div class="empty-state"><h3>Aucune playlist publique.</h3></div>
+  {% endif %}
 {% else %}
-  <div class="empty-state">
-    <h3>Cette chaîne n'a pas encore publié de vidéo.</h3>
+  <div class="about-card">
+    <h3>À propos</h3>
+    <p>{{ user.bio or "Aucune biographie renseignée." }}</p>
+    <dl class="about-dl">
+      <dt>Vues cumulées</dt><dd>{{ user.total_views|count }}</dd>
+      <dt>Membre depuis</dt><dd>{{ user.created_at.strftime('%d/%m/%Y') }}</dd>
+      <dt>Abonnés</dt><dd>{{ user.subscriber_count|count }}</dd>
+    </dl>
   </div>
 {% endif %}
 

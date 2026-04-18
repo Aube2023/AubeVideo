@@ -3,6 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="csrf-token" content="{{ csrf_token() }}">
   <title>{% block title %}AubeVideo — L'Aube Étoilée{% endblock %}</title>
   <link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='img/logo.svg') }}">
   <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
@@ -34,9 +35,26 @@
         <svg viewBox="0 0 24 24" width="22" height="22"><path fill="currentColor" d="M14 13h-3v3H9v-3H6v-2h3V8h2v3h3v2zm-1-9H5.5C4.12 4 3 5.12 3 6.5v11C3 18.88 4.12 20 5.5 20h13c1.38 0 2.5-1.12 2.5-2.5V9l-8-5z"/></svg>
         <span>Créer</span>
       </a>
+
+      <div class="notif-wrap">
+        <button class="icon-btn notif-btn" title="Notifications" onclick="toggleNotifs()">
+          <svg viewBox="0 0 24 24" width="22" height="22"><path fill="currentColor" d="M12 22c1.1 0 2-.9 2-2h-4c0 1.1.9 2 2 2zm6-6V11c0-3.07-1.64-5.64-4.5-6.32V4c0-.83-.67-1.5-1.5-1.5s-1.5.67-1.5 1.5v.68C7.63 5.36 6 7.92 6 11v5l-2 2v1h16v-1l-2-2z"/></svg>
+          {% if unread_notifs > 0 %}<span class="badge">{{ unread_notifs if unread_notifs < 100 else '99+' }}</span>{% endif %}
+        </button>
+        <div class="notif-dropdown" id="notifDropdown">
+          <div class="notif-head">
+            <strong>Notifications</strong>
+            <button class="link-btn" onclick="markAllRead()">Tout marquer comme lu</button>
+          </div>
+          <div id="notifList" class="notif-list"><div class="notif-empty">Chargement...</div></div>
+          <a href="{{ url_for('notifications_page') }}" class="notif-foot">Voir tout</a>
+        </div>
+      </div>
+
       <a href="{{ url_for('studio') }}" class="icon-btn" title="Studio">
         <svg viewBox="0 0 24 24" width="22" height="22"><path fill="currentColor" d="M17 10.5V7a1 1 0 0 0-1-1H4a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-3.5l4 4v-11z"/></svg>
       </a>
+
       <div class="user-menu">
         <button class="avatar-btn" onclick="toggleUserMenu()">
           <img src="{{ url_for('avatar', username=current_user.username) }}" alt="{{ current_user.display_name }}">
@@ -51,8 +69,11 @@
           </div>
           <hr>
           <a href="{{ url_for('studio') }}">🎬 Studio AubeVideo</a>
-          <a href="{{ url_for('settings') }}">⚙️ Paramètres</a>
+          <a href="{{ url_for('playlists_page') }}">📋 Mes playlists</a>
+          <a href="{{ url_for('watch_later_page') }}">⏱️ À regarder plus tard</a>
           <a href="{{ url_for('history') }}">🕒 Historique</a>
+          <a href="{{ url_for('settings') }}">⚙️ Paramètres</a>
+          {% if is_admin %}<hr><a href="{{ url_for('admin_home') }}">🛡️ Administration</a>{% endif %}
           <hr>
           <a href="{{ url_for('logout') }}">🚪 Déconnexion</a>
         </div>
@@ -73,7 +94,7 @@
       <span>Accueil</span>
     </a>
     <a href="{{ url_for('trending') }}" class="nav-item {% if request.endpoint=='trending' %}active{% endif %}">
-      <svg viewBox="0 0 24 24" width="22" height="22"><path fill="currentColor" d="M13.5.67s.74 2.65.74 4.8c0 2.06-1.35 3.73-3.41 3.73-2.07 0-3.63-1.67-3.63-3.73l.03-.36C5.21 7.51 4 10.62 4 14c0 4.42 3.58 8 8 8s8-3.58 8-8C20 8.61 17.41 3.8 13.5.67zM11.71 19c-1.78 0-3.22-1.4-3.22-3.14 0-1.62 1.05-2.76 2.81-3.12 1.77-.36 3.6-1.21 4.62-2.58.39 1.29.59 2.65.59 4.04 0 2.65-2.15 4.8-4.8 4.8z"/></svg>
+      <svg viewBox="0 0 24 24" width="22" height="22"><path fill="currentColor" d="M13.5.67s.74 2.65.74 4.8c0 2.06-1.35 3.73-3.41 3.73-2.07 0-3.63-1.67-3.63-3.73l.03-.36C5.21 7.51 4 10.62 4 14c0 4.42 3.58 8 8 8s8-3.58 8-8C20 8.61 17.41 3.8 13.5.67z"/></svg>
       <span>Tendances</span>
     </a>
     <a href="{{ url_for('subscriptions_feed') }}" class="nav-item {% if request.endpoint=='subscriptions_feed' %}active{% endif %}">
@@ -91,6 +112,14 @@
       <span>Historique</span>
     </a>
     {% if current_user %}
+    <a href="{{ url_for('watch_later_page') }}" class="nav-item {% if request.endpoint=='watch_later_page' %}active{% endif %}">
+      <svg viewBox="0 0 24 24" width="22" height="22"><path fill="currentColor" d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10 10-4.5 10-10S17.5 2 12 2zm5 12h-6V7h1.5v5.5H17V14z"/></svg>
+      <span>À regarder plus tard</span>
+    </a>
+    <a href="{{ url_for('playlists_page') }}" class="nav-item {% if request.endpoint in ['playlists_page','playlist_view'] %}active{% endif %}">
+      <svg viewBox="0 0 24 24" width="22" height="22"><path fill="currentColor" d="M4 10h12v2H4zm0-4h12v2H4zm0 8h8v2H4zm10 0v6l5-3z"/></svg>
+      <span>Playlists</span>
+    </a>
     <a href="{{ url_for('channel', username=current_user.username) }}" class="nav-item">
       <svg viewBox="0 0 24 24" width="22" height="22"><path fill="currentColor" d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/></svg>
       <span>Ma chaîne</span>
@@ -118,11 +147,11 @@
 
   <div class="ecosystem">
     <div class="nav-heading">L'Aube Étoilée</div>
-    <a href="https://aubeetoilee.com" target="_blank">🌅 Accueil</a>
-    <a href="https://docs.aubeetoilee.com" target="_blank">📝 AubeDocs</a>
-    <a href="https://drive.aubeetoilee.com" target="_blank">📁 AubeDrive</a>
-    <a href="https://data.aubeetoilee.com" target="_blank">📊 AubeData</a>
-    <a href="https://news.aubeetoilee.com" target="_blank">📰 AubeNews</a>
+    <a href="https://aubeetoilee.com" target="_blank" rel="noopener">🌅 Accueil</a>
+    <a href="https://docs.aubeetoilee.com" target="_blank" rel="noopener">📝 AubeDocs</a>
+    <a href="https://drive.aubeetoilee.com" target="_blank" rel="noopener">📁 AubeDrive</a>
+    <a href="https://data.aubeetoilee.com" target="_blank" rel="noopener">📊 AubeData</a>
+    <a href="https://news.aubeetoilee.com" target="_blank" rel="noopener">📰 AubeNews</a>
   </div>
 </aside>
 
@@ -138,6 +167,8 @@
   {% endwith %}
   {% block content %}{% endblock %}
 </main>
+
+<div id="modalRoot"></div>
 
 <script src="{{ url_for('static', filename='js/app.js') }}"></script>
 {% block scripts %}{% endblock %}

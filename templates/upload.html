@@ -6,7 +6,8 @@
   <h1>Mettre en ligne une vidéo</h1>
   <p class="subtitle">Partagez votre création avec la communauté L'Aube Étoilée.</p>
 
-  <form method="post" enctype="multipart/form-data" class="upload-form">
+  <form id="uploadForm" method="post" enctype="multipart/form-data" class="upload-form">
+    <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
     <div class="dropzone" id="dropzone">
       <input type="file" name="video" id="videoFile" accept="video/*" required>
       <div class="dz-placeholder">
@@ -15,6 +16,11 @@
         <div class="dz-hint">ou cliquez pour parcourir (MP4, WebM, MOV, MKV — max 2 Go)</div>
         <div id="selectedFile" class="dz-selected"></div>
       </div>
+    </div>
+
+    <div id="progressBar" class="progress-bar" style="display:none">
+      <div class="progress-fill" id="progressFill"></div>
+      <div class="progress-label" id="progressLabel">0%</div>
     </div>
 
     <div class="form-grid">
@@ -31,7 +37,7 @@
       <label class="field">
         <span>Miniature (optionnelle)</span>
         <input type="file" name="thumbnail" accept="image/*">
-        <small>Formats : JPG, PNG, WebP. Idéal 1280×720.</small>
+        <small>Si absente, une miniature sera générée automatiquement depuis la vidéo (FFmpeg).</small>
       </label>
 
       <div class="field-row">
@@ -62,7 +68,7 @@
 
     <div class="form-actions">
       <a href="{{ url_for('home') }}" class="btn-ghost">Annuler</a>
-      <button type="submit" class="btn btn-primary btn-lg">Publier la vidéo</button>
+      <button type="submit" class="btn btn-primary btn-lg" id="submitBtn">Publier la vidéo</button>
     </div>
   </form>
 </div>
@@ -71,6 +77,12 @@
 const fileInput = document.getElementById('videoFile');
 const dz = document.getElementById('dropzone');
 const selected = document.getElementById('selectedFile');
+const form = document.getElementById('uploadForm');
+const bar = document.getElementById('progressBar');
+const fill = document.getElementById('progressFill');
+const label = document.getElementById('progressLabel');
+const submitBtn = document.getElementById('submitBtn');
+
 fileInput.addEventListener('change', () => {
   if (fileInput.files[0]) {
     const f = fileInput.files[0];
@@ -80,6 +92,39 @@ fileInput.addEventListener('change', () => {
 });
 ['dragover','dragenter'].forEach(e => dz.addEventListener(e, ev => { ev.preventDefault(); dz.classList.add('hover'); }));
 ['dragleave','drop'].forEach(e => dz.addEventListener(e, ev => { ev.preventDefault(); dz.classList.remove('hover'); }));
-dz.addEventListener('drop', e => { if (e.dataTransfer.files[0]) { fileInput.files = e.dataTransfer.files; fileInput.dispatchEvent(new Event('change')); } });
+dz.addEventListener('drop', e => {
+  if (e.dataTransfer.files[0]) { fileInput.files = e.dataTransfer.files; fileInput.dispatchEvent(new Event('change')); }
+});
+
+form.addEventListener('submit', (e) => {
+  e.preventDefault();
+  const data = new FormData(form);
+  const xhr = new XMLHttpRequest();
+  xhr.open('POST', form.action || window.location.pathname);
+  xhr.upload.addEventListener('progress', (ev) => {
+    if (ev.lengthComputable) {
+      const pct = (ev.loaded / ev.total) * 100;
+      fill.style.width = pct.toFixed(1) + '%';
+      label.textContent = pct.toFixed(1) + '%';
+    }
+  });
+  xhr.addEventListener('load', () => {
+    if (xhr.status >= 200 && xhr.status < 400) {
+      label.textContent = 'Traitement serveur (FFmpeg)...';
+      window.location = xhr.responseURL;
+    } else {
+      alert('Erreur lors de l\'upload (' + xhr.status + ').');
+      submitBtn.disabled = false;
+      bar.style.display = 'none';
+    }
+  });
+  xhr.addEventListener('error', () => {
+    alert('Erreur réseau pendant l\'upload.');
+    submitBtn.disabled = false;
+  });
+  submitBtn.disabled = true;
+  bar.style.display = 'block';
+  xhr.send(data);
+});
 </script>
 {% endblock %}

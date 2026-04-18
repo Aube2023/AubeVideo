@@ -7,9 +7,11 @@
   <p class="subtitle">Personnalisez votre chaîne AubeVideo.</p>
 
   <form method="post" enctype="multipart/form-data" class="upload-form">
+    <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
+
     <div class="avatar-editor">
       <img src="{{ url_for('avatar', username=user.username) }}" alt="" class="avatar-lg">
-      <div>
+      <div style="flex:1">
         <label class="field">
           <span>Photo de profil</span>
           <input type="file" name="avatar" accept="image/*">
@@ -17,6 +19,15 @@
         </label>
       </div>
     </div>
+
+    <label class="field">
+      <span>Bannière de chaîne</span>
+      <input type="file" name="banner" accept="image/*">
+      <small>Idéal 2560×720. Affichée en haut de la page de chaîne.</small>
+      {% if user.banner_url %}
+        <img src="{{ url_for('banner', username=user.username) }}" alt="" style="max-width:100%;border-radius:8px;margin-top:8px">
+      {% endif %}
+    </label>
 
     <label class="field">
       <span>Nom d'affichage</span>

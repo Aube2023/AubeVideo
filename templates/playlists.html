@@ -1,0 +1,53 @@
+{% extends "base.html" %}
+{% block title %}Mes playlists — AubeVideo{% endblock %}
+{% block content %}
+<div class="container-narrow">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+    <h1>Mes playlists</h1>
+    <button class="btn btn-primary" onclick="createPlaylistPrompt()">+ Nouvelle playlist</button>
+  </div>
+
+  {% if playlists %}
+    <div class="video-grid">
+      {% for p in playlists %}
+        <div class="playlist-card-wrap">
+          <a href="{{ url_for('playlist_view', playlist_id=p.id) }}" class="playlist-card">
+            <div class="pl-thumb">📋</div>
+            <div class="pl-title">{{ p.title }}</div>
+            <div class="pl-count">{{ p.video_count }} vidéo{{ 's' if p.video_count != 1 else '' }} • {{ p.visibility }}</div>
+          </a>
+          <button class="btn-danger small" onclick="deletePlaylist({{ p.id }})">Supprimer</button>
+        </div>
+      {% endfor %}
+    </div>
+  {% else %}
+    <div class="empty-state">
+      <h3>Aucune playlist</h3>
+      <p>Créez votre première playlist pour organiser vos vidéos.</p>
+    </div>
+  {% endif %}
+</div>
+
+<script>
+async function createPlaylistPrompt() {
+  const title = prompt("Nom de la playlist :");
+  if (!title) return;
+  const visibility = prompt("Visibilité (public, unlisted, private) :", "public") || "public";
+  const r = await fetch('/api/playlist', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json', 'X-CSRF-Token': getCsrf()},
+    body: JSON.stringify({title, visibility})
+  });
+  if (r.ok) location.reload();
+  else alert('Erreur de création.');
+}
+async function deletePlaylist(id) {
+  if (!confirm('Supprimer cette playlist ?')) return;
+  const r = await fetch('/api/playlist/' + id, {
+    method: 'DELETE',
+    headers: {'X-CSRF-Token': getCsrf()}
+  });
+  if (r.ok) location.reload();
+}
+</script>
+{% endblock %}

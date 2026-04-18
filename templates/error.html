@@ -1,0 +1,9 @@
+{% extends "base.html" %}
+{% block title %}Erreur {{ code }} — AubeVideo{% endblock %}
+{% block content %}
+<div class="empty-state">
+  <h1 style="font-size:80px;color:var(--accent)">{{ code }}</h1>
+  <h2>{{ message }}</h2>
+  <a href="{{ url_for('home') }}" class="btn btn-primary" style="margin-top:16px">Retour à l'accueil</a>
+</div>
+{% endblock %}

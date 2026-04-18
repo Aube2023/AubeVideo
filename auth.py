@@ -3,8 +3,11 @@
 Ne JAMAIS reset les mots de passe Linux : auth partagée entre AubeMail,
 AubeDocs, AubeDrive, AubeData, AubeCRM, AubeDriver, AubeNews, AubeVideo.
 """
+import os
 from functools import wraps
 from flask import session, redirect, url_for, jsonify, request
+
+DEV_MODE = os.environ.get("AUBEVIDEO_DEV_MODE", "0") == "1"
 
 try:
     import pam
@@ -16,8 +19,16 @@ except Exception:
 
 
 def pam_authenticate(username: str, password: str) -> bool:
-    """Vérifie les credentials via PAM (user Linux système)."""
-    if not PAM_AVAILABLE or not username or not password:
+    """Vérifie les credentials via PAM (user Linux système).
+
+    En DEV_MODE (AUBEVIDEO_DEV_MODE=1) : accepte n'importe quel user/mdp
+    non vides — pour tests locaux macOS sans PAM système.
+    """
+    if not username or not password:
+        return False
+    if DEV_MODE:
+        return True
+    if not PAM_AVAILABLE:
         return False
     try:
         return bool(_PAM.authenticate(username, password, service="login"))

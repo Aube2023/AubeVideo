@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+{% block title %}{{ playlist.title }} — AubeVideo{% endblock %}
+{% block content %}
+<div class="playlist-header">
+  <div class="pl-thumb-lg">📋</div>
+  <div>
+    <h1>{{ playlist.title }}</h1>
+    <div class="card-stats">
+      Par <a href="{{ url_for('channel', username=playlist.username) }}">{{ playlist.display_name }}</a>
+      • {{ videos|length }} vidéo{{ 's' if videos|length != 1 else '' }} • {{ playlist.visibility }}
+    </div>
+    {% if videos %}
+      <a href="{{ url_for('watch', video_id=videos[0].id) }}" class="btn btn-primary">▶ Tout lire</a>
+    {% endif %}
+  </div>
+</div>
+
+{% if videos %}
+  <ol class="playlist-list">
+    {% for v in videos %}
+      <li class="playlist-item">
+        <span class="pl-num">{{ loop.index }}</span>
+        <a href="{{ url_for('watch', video_id=v.id) }}" class="pl-video">
+          <div class="pl-video-thumb">
+            <img src="{{ url_for('thumbnail', video_id=v.id) }}" alt="" loading="lazy">
+            {% if v.duration %}<span class="duration">{{ v.duration|duration }}</span>{% endif %}
+          </div>
+          <div class="pl-video-info">
+            <div class="pl-video-title">{{ v.title }}</div>
+            <div class="pl-video-sub">{{ v.display_name }} • {{ v.views|count }} vues</div>
+          </div>
+        </a>
+      </li>
+    {% endfor %}
+  </ol>
+{% else %}
+  <div class="empty-state"><h3>Playlist vide</h3></div>
+{% endif %}
+{% endblock %}

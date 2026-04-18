@@ -1,0 +1,53 @@
+{% extends "base.html" %}
+{% block title %}Administration — AubeVideo{% endblock %}
+{% block content %}
+<div class="container-narrow">
+  <h1>🛡️ Administration</h1>
+
+  <div class="stats-grid">
+    <div class="stat-card"><div class="stat-label">Utilisateurs</div><div class="stat-value">{{ users_count }}</div></div>
+    <div class="stat-card"><div class="stat-label">Vidéos actives</div><div class="stat-value">{{ videos_count }}</div></div>
+    <div class="stat-card"><div class="stat-label">Signalements en attente</div><div class="stat-value">{{ pending_reports }}</div></div>
+  </div>
+
+  <h2 class="section-h">Signalements à traiter</h2>
+  {% if reports %}
+    <table class="studio-table">
+      <thead><tr><th>Type</th><th>ID cible</th><th>Motif</th><th>Détails</th><th>Signalé par</th><th>Date</th><th>Actions</th></tr></thead>
+      <tbody>
+        {% for r in reports %}
+          <tr data-report="{{ r.id }}">
+            <td>{{ r.target_type }}</td>
+            <td>
+              {% if r.target_type == 'video' %}<a href="{{ url_for('watch', video_id=r.target_id) }}">#{{ r.target_id }}</a>
+              {% else %}#{{ r.target_id }}{% endif %}
+            </td>
+            <td>{{ r.reason }}</td>
+            <td style="max-width:240px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ r.details }}</td>
+            <td>@{{ r.reporter }}</td>
+            <td>{{ r.created_at|timeago }}</td>
+            <td>
+              <button class="btn-ghost small" onclick="handleReport({{ r.id }}, 'dismiss')">Ignorer</button>
+              <button class="btn-danger small" onclick="handleReport({{ r.id }}, 'remove')">Supprimer</button>
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% else %}
+    <p class="empty">Aucun signalement en attente.</p>
+  {% endif %}
+</div>
+
+<script>
+async function handleReport(id, action) {
+  const r = await fetch('/api/admin/report/' + id, {
+    method: 'POST',
+    headers: {'Content-Type':'application/json','X-CSRF-Token': getCsrf()},
+    body: JSON.stringify({action})
+  });
+  if (r.ok) document.querySelector(`tr[data-report="${id}"]`).remove();
+  else alert('Erreur.');
+}
+</script>
+{% endblock %}
