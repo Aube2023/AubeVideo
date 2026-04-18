@@ -23,6 +23,7 @@ from flask import (
     jsonify, send_from_directory, abort, Response, stream_with_context, flash
 )
 from werkzeug.utils import secure_filename
+from werkzeug.middleware.proxy_fix import ProxyFix
 from PIL import Image
 
 from db import db_cursor, init_db, ensure_user
@@ -48,6 +49,10 @@ app = Flask(__name__)
 app.secret_key = os.environ.get("AUBEVIDEO_SECRET", "change-me-in-prod-" + uuid.uuid4().hex)
 app.config["MAX_CONTENT_LENGTH"] = MAX_VIDEO_SIZE
 app.jinja_env.autoescape = True
+
+# Derrière un proxy (nginx) : respecter X-Forwarded-For / X-Forwarded-Proto
+if os.environ.get("AUBEVIDEO_BEHIND_PROXY", "0") == "1":
+    app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_prefix=1)
 
 configure_session(app)
 csrf_protect(app)
@@ -132,29 +137,43 @@ app.jinja_env.filters["timeago"] = time_ago
 app.jinja_env.filters["duration"] = format_duration
 
 
+CATEGORIES = [
+    "Général", "Musique", "Gaming", "Actualités", "Sport",
+    "Éducation", "Science", "Humour", "Film", "Voyage",
+    "Cuisine", "Technologie", "Art", "Mode",
+]
+
+
 @app.context_processor
 def inject_globals():
     uid = session.get("user_id")
-    n_unread = notify.unread_count(uid) if uid else 0
-    user_obj = current_user()
-    is_admin = False
-    if uid:
-        try:
-            with db_cursor() as cur:
+    # Ne rien faire de coûteux si pas connecté / requête statique-like
+    if not uid or request.endpoint in ("stream", "thumbnail", "avatar", "banner",
+                                        "static", "health"):
+        return {"current_user": current_user(), "is_admin": False,
+                "unread_notifs": 0, "CATEGORIES": CATEGORIES}
+    n_unread = 0
+    is_admin = session.get("is_admin", False)
+    try:
+        with db_cursor() as cur:
+            # Cache is_admin en session (rafraîchi seulement à la connexion)
+            if "is_admin" not in session:
                 cur.execute("SELECT is_admin FROM users WHERE id = %s", (uid,))
                 r = cur.fetchone()
                 is_admin = bool(r and r["is_admin"])
-        except Exception:
-            pass
+                session["is_admin"] = is_admin
+            cur.execute(
+                "SELECT COUNT(*) AS c FROM notifications WHERE user_id = %s AND is_read = FALSE",
+                (uid,),
+            )
+            n_unread = cur.fetchone()["c"]
+    except Exception:
+        pass
     return {
-        "current_user": user_obj,
+        "current_user": current_user(),
         "is_admin": is_admin,
         "unread_notifs": n_unread,
-        "CATEGORIES": [
-            "Général", "Musique", "Gaming", "Actualités", "Sport",
-            "Éducation", "Science", "Humour", "Film", "Voyage",
-            "Cuisine", "Technologie", "Art", "Mode"
-        ],
+        "CATEGORIES": CATEGORIES,
     }
 
 
@@ -188,6 +207,9 @@ def login():
                 flash("Ce compte a été suspendu.", "error")
                 return render_template("login.html")
         session.permanent = True
+        # Évite un cache is_admin stale d'un ancien user
+        session.pop("is_admin", None)
+        session.pop("viewed", None)
         session["user_id"] = uid
         session["username"] = username
         session["display_name"] = username
@@ -200,7 +222,7 @@ def login():
     return render_template("login.html")
 
 
-@app.route("/logout", methods=["GET", "POST"])
+@app.route("/logout", methods=["POST"])
 def logout():
     session.clear()
     flash("Déconnecté.", "success")
@@ -447,13 +469,27 @@ def watch(video_id):
             if not session.get("user_id") or session["user_id"] != video["user_id"]:
                 abort(403)
 
-        cur.execute(
-            "UPDATE videos SET views = views + 1 WHERE id = %s", (video_id,)
-        )
-        cur.execute(
-            "UPDATE users SET total_views = total_views + 1 WHERE id = %s",
-            (video["user_id"],),
-        )
+        # Dédup: 1 vue / vidéo / session toutes les 6h
+        viewed = session.get("viewed", {})
+        import time as _t
+        now = _t.time()
+        last = viewed.get(str(video_id), 0)
+        if now - last > 6 * 3600:
+            cur.execute(
+                "UPDATE videos SET views = views + 1 WHERE id = %s", (video_id,)
+            )
+            cur.execute(
+                "UPDATE users SET total_views = total_views + 1 WHERE id = %s",
+                (video["user_id"],),
+            )
+            viewed[str(video_id)] = now
+            # Garde seulement les 200 dernières vidéos vues
+            if len(viewed) > 200:
+                oldest = sorted(viewed.items(), key=lambda x: x[1])[:len(viewed) - 200]
+                for k, _ in oldest:
+                    viewed.pop(k, None)
+            session["viewed"] = viewed
+            session.modified = True
 
         uid = session.get("user_id")
         if uid:
@@ -538,6 +574,24 @@ def watch(video_id):
 
 
 # ---------- Streaming vidéo avec support Range ----------
+@app.route("/embed/<int:video_id>")
+def embed(video_id):
+    with db_cursor() as cur:
+        cur.execute(
+            """SELECT v.*, u.username, u.display_name
+               FROM videos v JOIN users u ON v.user_id = u.id
+               WHERE v.id = %s AND v.is_removed = FALSE""",
+            (video_id,),
+        )
+        v = cur.fetchone()
+    if not v or v["visibility"] == "private":
+        abort(404)
+    resp = Response(render_template("embed.html", video=v))
+    resp.headers.pop("X-Frame-Options", None)
+    resp.headers["Content-Security-Policy"] = "frame-ancestors *"
+    return resp
+
+
 @app.route("/stream/<int:video_id>")
 def stream(video_id):
     with db_cursor() as cur:
@@ -978,10 +1032,21 @@ def delete_comment(video_id, comment_id):
         is_admin = bool(admin_row and admin_row["is_admin"])
         if row["user_id"] != uid and row["owner"] != uid and not is_admin:
             return jsonify({"error": "interdit"}), 403
+        # Compte les réponses imbriquées (qui cascadent aussi)
+        cur.execute(
+            """WITH RECURSIVE tree AS (
+                 SELECT id FROM comments WHERE id = %s
+                 UNION ALL
+                 SELECT c.id FROM comments c JOIN tree t ON c.parent_id = t.id
+               )
+               SELECT COUNT(*) AS c FROM tree""",
+            (comment_id,),
+        )
+        total = cur.fetchone()["c"]
         cur.execute("DELETE FROM comments WHERE id = %s", (comment_id,))
         cur.execute(
-            "UPDATE videos SET comments_count = GREATEST(comments_count-1,0) WHERE id = %s",
-            (video_id,),
+            "UPDATE videos SET comments_count = GREATEST(comments_count - %s, 0) WHERE id = %s",
+            (total, video_id),
         )
     return jsonify({"ok": True})
 
@@ -1030,6 +1095,26 @@ def subscribe(channel_id):
         )
         count = cur.fetchone()["subscriber_count"]
     return jsonify({"subscribed": subscribed, "count": count})
+
+
+# ---------- Liste de mes abonnements ----------
+@app.route("/my-subscriptions")
+@login_required
+def my_subscriptions():
+    uid = session["user_id"]
+    with db_cursor() as cur:
+        cur.execute(
+            """SELECT u.id, u.username, u.display_name, u.avatar_url,
+                      u.subscriber_count,
+                      (SELECT MAX(created_at) FROM videos WHERE user_id = u.id) AS last_upload
+               FROM subscriptions s
+               JOIN users u ON s.channel_id = u.id
+               WHERE s.subscriber_id = %s
+               ORDER BY u.display_name""",
+            (uid,),
+        )
+        subs = cur.fetchall()
+    return render_template("my_subscriptions.html", subs=subs)
 
 
 # ---------- Watch later ----------

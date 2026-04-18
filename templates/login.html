@@ -8,6 +8,7 @@
   <p class="auth-sub">Utilisez vos identifiants de L'Aube Étoilée (SSO partagé).</p>
 
   <form method="post" class="auth-form">
+    <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
     <label class="field">
       <span>Nom d'utilisateur</span>
       <input type="text" name="username" autofocus required autocomplete="username">

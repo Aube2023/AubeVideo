@@ -10,7 +10,7 @@
 </div>
 
 {% if videos %}
-  <div class="video-grid">
+  <div class="video-grid" id="videoGrid">
     {% for v in videos %}
       <article class="video-card">
         <a href="{{ url_for('watch', video_id=v.id) }}" class="thumb-wrap">
@@ -34,6 +34,11 @@
       </article>
     {% endfor %}
   </div>
+  {% if has_more %}
+    <div class="load-more">
+      <a href="?{% if active_category and active_category != 'Toutes' %}c={{ active_category }}&{% endif %}page={{ (page or 1) + 1 }}" class="btn btn-primary">Charger plus</a>
+    </div>
+  {% endif %}
 {% else %}
   <div class="empty-state">
     <h2>Aucune vidéo à afficher</h2>

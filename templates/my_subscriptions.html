@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+{% block title %}Mes abonnements — AubeVideo{% endblock %}
+{% block content %}
+<div class="container-narrow">
+  <h1>Mes abonnements</h1>
+  <p class="subtitle">{{ subs|length }} chaîne{{ 's' if subs|length != 1 else '' }}</p>
+
+  {% if subs %}
+    <div class="sub-list">
+      {% for s in subs %}
+        <div class="sub-row">
+          <a href="{{ url_for('channel', username=s.username) }}" class="sub-main">
+            <img src="{{ url_for('avatar', username=s.username) }}" alt="">
+            <div>
+              <div class="sub-name">{{ s.display_name }}</div>
+              <div class="sub-meta">@{{ s.username }} • {{ s.subscriber_count|count }} abonnés</div>
+              {% if s.last_upload %}<div class="sub-last">Dernière vidéo : {{ s.last_upload|timeago }}</div>{% endif %}
+            </div>
+          </a>
+          <button class="btn-subscribe subscribed" data-channel="{{ s.id }}" onclick="unsubInline(this)">Abonné</button>
+        </div>
+      {% endfor %}
+    </div>
+  {% else %}
+    <div class="empty-state">
+      <h3>Aucun abonnement</h3>
+      <p>Abonnez-vous à des chaînes pour les voir ici.</p>
+    </div>
+  {% endif %}
+</div>
+
+<script>
+async function unsubInline(btn) {
+  const cid = btn.dataset.channel;
+  const r = await fetch('/api/subscribe/' + cid, {method: 'POST', headers: jsonHeaders()});
+  if (!r.ok) return;
+  const d = await r.json();
+  if (!d.subscribed) btn.closest('.sub-row').remove();
+}
+</script>
+{% endblock %}

@@ -432,6 +432,29 @@ textarea { resize: vertical; }
 .empty-state h2, .empty-state h3 { color: var(--text); margin-bottom: 8px; }
 .empty-state p { margin-bottom: 20px; }
 
+/* ========= MISC PROD ========= */
+.logout-btn {
+  display: block; width: 100%; text-align: left; padding: 10px 16px;
+  background: none; color: var(--text); font: inherit; cursor: pointer;
+  transition: background .12s;
+}
+.logout-btn:hover { background: var(--bg-hover); }
+
+.load-more { display: grid; place-items: center; padding: 32px 0; }
+
+.sub-list { display: flex; flex-direction: column; gap: 8px; }
+.sub-row { display: flex; align-items: center; justify-content: space-between;
+  padding: 12px; background: var(--bg-elev); border-radius: var(--radius);
+  transition: background .12s; }
+.sub-row:hover { background: var(--bg-hover); }
+.sub-main { display: flex; gap: 14px; align-items: center; flex: 1; }
+.sub-main img { width: 56px; height: 56px; border-radius: 50%; object-fit: cover; }
+.sub-name { font-weight: 600; }
+.sub-meta, .sub-last { color: var(--text-dim); font-size: 13px; margin-top: 2px; }
+
+/* Form-action styling for user-menu submenu */
+.user-dropdown form { margin: 0; }
+
 /* ========= NOTIFICATIONS ========= */
 .notif-wrap { position: relative; }
 .notif-btn { position: relative; }

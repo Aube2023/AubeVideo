@@ -4,6 +4,14 @@
 
 <h1 class="search-head">Résultats pour « {{ q }} »</h1>
 
+{% if q %}
+<div class="chips">
+  <a class="chip {% if sort=='relevance' %}active{% endif %}" href="?q={{ q }}&sort=relevance">Pertinence</a>
+  <a class="chip {% if sort=='views' %}active{% endif %}" href="?q={{ q }}&sort=views">Plus vues</a>
+  <a class="chip {% if sort=='date' %}active{% endif %}" href="?q={{ q }}&sort=date">Plus récentes</a>
+</div>
+{% endif %}
+
 {% if not q %}
   <p>Saisissez un terme dans la barre de recherche.</p>
 {% else %}

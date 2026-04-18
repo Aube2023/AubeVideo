@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <title>{{ video.title }} — AubeVideo</title>
+  <style>
+    html, body { margin: 0; background: #000; height: 100%; overflow: hidden; }
+    video { width: 100%; height: 100%; object-fit: contain; background: #000; }
+    .watermark {
+      position: absolute; bottom: 12px; right: 12px;
+      background: rgba(0,0,0,.6); color: #e8b84a; padding: 4px 8px;
+      border-radius: 4px; font: 12px/1 Arial, sans-serif;
+      text-decoration: none; z-index: 10;
+    }
+  </style>
+</head>
+<body>
+  <video controls autoplay playsinline preload="metadata" poster="/thumb/{{ video.id }}">
+    <source src="/stream/{{ video.id }}" type="{{ video.mime_type }}">
+  </video>
+  <a class="watermark" href="/watch/{{ video.id }}" target="_blank" rel="noopener">AubeVideo ▶</a>
+</body>
+</html>

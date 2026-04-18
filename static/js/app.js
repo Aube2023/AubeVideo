@@ -37,7 +37,7 @@ async function loadNotifications() {
     const data = await r.json();
     if (!data.length) { list.innerHTML = '<div class="notif-empty">Aucune notification</div>'; return; }
     list.innerHTML = data.map(n => `
-      <a href="${escapeAttr(n.link || '#')}" class="notif-item ${n.is_read ? '' : 'unread'}">
+      <a href="${escapeAttr(n.link || '#')}" class="notif-item ${n.is_read ? '' : 'unread'}" onclick="markAllRead()">
         <div><strong>${escapeHtml(n.title)}</strong></div>
         <div class="notif-sub">${escapeHtml(n.body || '')}</div>
         <div class="notif-time">${timeAgo(n.created_at)}</div>
@@ -69,6 +69,8 @@ document.querySelectorAll('.like-btn, .dislike-btn').forEach(btn => {
     document.querySelector('.like-btn').classList.toggle('active', data.reaction === 'like');
     document.querySelector('.dislike-btn').classList.toggle('active', data.reaction === 'dislike');
     document.getElementById('likeCount').textContent = formatCount(data.likes);
+    const dc = document.getElementById('dislikeCount');
+    if (dc) dc.textContent = formatCount(data.dislikes);
   });
 });
 
@@ -321,6 +323,30 @@ function openSaveToPlaylist(videoId) {
 }
 function closeModal() { document.getElementById('modalRoot').innerHTML = ''; }
 
+function openEmbed(videoId) {
+  const code = `<iframe src="${location.origin}/embed/${videoId}" width="640" height="360" frameborder="0" allowfullscreen></iframe>`;
+  const link = `${location.origin}/watch/${videoId}`;
+  const root = document.getElementById('modalRoot');
+  root.innerHTML = `
+    <div class="modal-bg" onclick="if(event.target===this)closeModal()">
+      <div class="modal">
+        <h3>Intégrer cette vidéo</h3>
+        <label class="field">
+          <span>Code iframe (copier-coller)</span>
+          <textarea rows="3" readonly id="embedTA">${code}</textarea>
+        </label>
+        <label class="field">
+          <span>Lien direct</span>
+          <input type="text" readonly value="${link}">
+        </label>
+        <div class="form-actions">
+          <button class="btn-ghost" onclick="closeModal()">Fermer</button>
+          <button class="btn btn-primary" onclick="navigator.clipboard.writeText(document.getElementById('embedTA').value); this.textContent='✓ Copié'">Copier le code</button>
+        </div>
+      </div>
+    </div>`;
+}
+
 /* ========= REPORT MODAL ========= */
 const REPORT_REASONS = [
   "Contenu inapproprié", "Discours haineux", "Violence",
@@ -392,21 +418,34 @@ setTimeout(() => {
   });
 }, 4000);
 
-/* ========= INFINITE SCROLL (feed) ========= */
-const grid = document.querySelector('.video-grid');
-if (grid && document.body.dataset.infinite === '1') {
-  let loading = false, page = 1, hasMore = true;
-  window.addEventListener('scroll', async () => {
-    if (loading || !hasMore) return;
-    if (window.innerHeight + window.scrollY >= document.body.offsetHeight - 800) {
-      loading = true; page++;
-      const url = new URL(location.href); url.searchParams.set('page', page); url.searchParams.set('partial', '1');
-      const r = await fetch(url.pathname + '?' + url.searchParams);
-      if (!r.ok) { loading = false; return; }
-      const html = await r.text();
-      if (html.trim()) grid.insertAdjacentHTML('beforeend', html);
-      else hasMore = false;
-      loading = false;
+/* ========= AUTO-RESUME VIDEO POSITION ========= */
+if (player) {
+  const videoId = window.AUBE_VIDEO_ID;
+  const key = 'resume_' + videoId;
+  player.addEventListener('loadedmetadata', () => {
+    if (!isNaN(tParam) && tParam > 0) return;
+    try {
+      const saved = parseFloat(localStorage.getItem(key));
+      if (!isNaN(saved) && saved > 5 && saved < player.duration - 10) {
+        player.currentTime = saved;
+        flashOverlay('Reprise à ' + fmtTime(saved));
+      }
+    } catch(e) {}
+  });
+  let saveT = 0;
+  player.addEventListener('timeupdate', () => {
+    const now = Date.now();
+    if (now - saveT > 3000) {
+      saveT = now;
+      try { localStorage.setItem(key, player.currentTime); } catch(e){}
     }
   });
+  player.addEventListener('ended', () => {
+    try { localStorage.removeItem(key); } catch(e){}
+  });
+}
+function fmtTime(s) {
+  s = Math.floor(s);
+  const m = Math.floor(s/60), r = s%60;
+  return m + ':' + (r < 10 ? '0' : '') + r;
 }
