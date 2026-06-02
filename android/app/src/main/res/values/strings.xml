@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">AubeVideo</string>
+    <string name="brand_tagline">L\'Aube Étoilée</string>
+
+    <!-- Navigation -->
+    <string name="nav_home">Accueil</string>
+    <string name="nav_shorts">Shorts</string>
+    <string name="nav_subs">Abonnements</string>
+    <string name="nav_library">Bibliothèque</string>
+    <string name="nav_search">Recherche</string>
+
+    <!-- Auth -->
+    <string name="login_title">Connexion</string>
+    <string name="login_subtitle">Connecte-toi avec ton compte L\'Aube Étoilée</string>
+    <string name="login_username">Identifiant</string>
+    <string name="login_password">Mot de passe</string>
+    <string name="login_otp">Code 2FA</string>
+    <string name="login_submit">Se connecter</string>
+    <string name="login_error">Identifiants invalides</string>
+    <string name="logout">Déconnexion</string>
+
+    <!-- Watch -->
+    <string name="like">J\'aime</string>
+    <string name="dislike">Je n\'aime pas</string>
+    <string name="share">Partager</string>
+    <string name="save">Enregistrer</string>
+    <string name="subscribe">S\'abonner</string>
+    <string name="subscribed">Abonné</string>
+    <string name="comments">Commentaires</string>
+    <string name="add_comment">Ajouter un commentaire…</string>
+
+    <!-- Library -->
+    <string name="lib_history">Historique</string>
+    <string name="lib_watch_later">À regarder plus tard</string>
+    <string name="lib_playlists">Playlists</string>
+    <string name="lib_downloads">Téléchargements</string>
+    <string name="lib_your_videos">Vos vidéos</string>
+
+    <!-- Misc -->
+    <string name="retry">Réessayer</string>
+    <string name="loading">Chargement…</string>
+    <string name="error_network">Connexion impossible</string>
+</resources>

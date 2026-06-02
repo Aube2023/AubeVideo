@@ -1,0 +1,47 @@
+# AubeVideo — stack complète auto-hébergée (VPS).
+#   docker compose up -d --build
+# Puis l'app écoute sur http://localhost:8080 (mettre un nginx/Caddy TLS devant).
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: aubevideo
+      POSTGRES_USER: aubevideo
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-aubevideo_pass_change_me}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U aubevideo"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+
+  web:
+    build: .
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgres://aubevideo:${DB_PASSWORD:-aubevideo_pass_change_me}@db:5432/aubevideo
+      AUBEVIDEO_DB_SSLMODE: ""            # pas de SSL en réseau Docker interne
+      AUBEVIDEO_SECRET: ${AUBEVIDEO_SECRET:-change-me-in-prod}
+      AUBEVIDEO_PAM_LOGIN: "0"
+      AUBEVIDEO_BEHIND_PROXY: "1"
+      AUBEVIDEO_HTTPS: "1"
+      REDIS_URL: redis://redis:6379/0
+      WEB_CONCURRENCY: "3"
+      PORT: "8080"
+    ports:
+      - "8080:8080"
+    volumes:
+      - uploads:/app/uploads
+
+volumes:
+  pgdata:
+  uploads:

@@ -5,12 +5,12 @@
 <div class="auth-card">
   <img src="{{ url_for('static', filename='img/logo.svg') }}" alt="" class="auth-logo">
   <h1>Connexion à AubeVideo</h1>
-  <p class="auth-sub">Utilisez vos identifiants de L'Aube Étoilée (SSO partagé).</p>
+  <p class="auth-sub">Connectez-vous avec votre e-mail (ou nom d'utilisateur) et votre mot de passe.</p>
 
   <form method="post" class="auth-form">
     <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
     <label class="field">
-      <span>Nom d'utilisateur</span>
+      <span>E-mail ou nom d'utilisateur</span>
       <input type="text" name="username" autofocus required autocomplete="username">
     </label>
     <label class="field">
@@ -21,7 +21,8 @@
   </form>
 
   <div class="auth-foot">
-    <a href="https://aubeetoilee.com/creer-compte" target="_blank">Créer un compte L'Aube Étoilée</a>
+    <span>Pas encore de compte ?</span>
+    <a href="{{ url_for('register', next=request.args.get('next','')) }}"><strong>Créer un compte</strong></a>
   </div>
 </div>
 

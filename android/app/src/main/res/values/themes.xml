@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="Theme.AubeVideo" parent="android:Theme.Material.Light.NoActionBar" />
+
+    <style name="Theme.AubeVideo.Splash" parent="Theme.SplashScreen">
+        <item name="windowSplashScreenBackground">@color/aube_bg_dark</item>
+        <item name="windowSplashScreenAnimatedIcon">@drawable/ic_launcher_foreground</item>
+        <item name="postSplashScreenTheme">@style/Theme.AubeVideo</item>
+    </style>
+</resources>

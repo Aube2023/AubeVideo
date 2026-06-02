@@ -5,6 +5,15 @@ venv/
 .env
 uploads/
 *.log
+logs/
 .DS_Store
 .idea/
 .vscode/
+.secret_key
+# Android build artifacts & gros binaires (ne pas committer dans le repo de déploiement)
+*.apk
+android/.gradle/
+android/.kotlin/
+android/build/
+android/app/build/
+android/local.properties

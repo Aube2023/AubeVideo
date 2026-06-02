@@ -36,6 +36,17 @@ def generate_thumbnail(video_path: Path, out_path: Path, timestamp_sec: int = 1)
         return False
 
 
+def srt_to_vtt(text: str) -> str:
+    """Convertit un sous-titrage SRT en WEBVTT (passe linéaire)."""
+    out = ["WEBVTT", ""]
+    for line in text.splitlines():
+        if "-->" in line:
+            line = line.replace(",", ".")
+        if not line.strip().isdigit():
+            out.append(line)
+    return "\n".join(out)
+
+
 def probe_metadata(video_path: Path) -> dict:
     """Retourne {duration, width, height, codec} ou {} en cas d'erreur."""
     try:

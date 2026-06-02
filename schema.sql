@@ -229,3 +229,73 @@ CREATE TABLE IF NOT EXISTS live_streams (
     ended_at TIMESTAMP,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
+
+-- v3 : Tokens API (clients mobiles, intégrations)
+CREATE TABLE IF NOT EXISTS api_tokens (
+    id SERIAL PRIMARY KEY,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    token_hash VARCHAR(128) NOT NULL UNIQUE,
+    device VARCHAR(128) DEFAULT '',
+    platform VARCHAR(32) DEFAULT '',
+    last_used_at TIMESTAMP,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    expires_at TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_api_tokens_user ON api_tokens(user_id);
+CREATE INDEX IF NOT EXISTS idx_api_tokens_hash ON api_tokens(token_hash);
+
+-- v3 : Préférences utilisateur (thème, lecture auto, qualité par défaut, langue)
+CREATE TABLE IF NOT EXISTS user_preferences (
+    user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+    theme VARCHAR(16) DEFAULT 'dark',
+    autoplay BOOLEAN DEFAULT TRUE,
+    default_quality VARCHAR(16) DEFAULT 'auto',
+    language VARCHAR(8) DEFAULT 'fr',
+    safe_mode BOOLEAN DEFAULT FALSE,
+    background_play BOOLEAN DEFAULT TRUE,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- v3 : Push devices (Android FCM, iOS APNs)
+CREATE TABLE IF NOT EXISTS push_devices (
+    id SERIAL PRIMARY KEY,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    token TEXT NOT NULL UNIQUE,
+    platform VARCHAR(16) NOT NULL,
+    device VARCHAR(128) DEFAULT '',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    last_seen_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_push_devices_user ON push_devices(user_id);
+
+-- v3 : Chapitres vidéos
+CREATE TABLE IF NOT EXISTS chapters (
+    id SERIAL PRIMARY KEY,
+    video_id INTEGER NOT NULL REFERENCES videos(id) ON DELETE CASCADE,
+    start_seconds INTEGER NOT NULL,
+    title VARCHAR(255) NOT NULL,
+    position INTEGER DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_chapters_video ON chapters(video_id, position);
+
+-- v3 : Téléchargements offline (pour app mobile)
+CREATE TABLE IF NOT EXISTS offline_downloads (
+    id SERIAL PRIMARY KEY,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    video_id INTEGER NOT NULL REFERENCES videos(id) ON DELETE CASCADE,
+    quality VARCHAR(16) DEFAULT '720p',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(user_id, video_id)
+);
+
+-- v3 : Vérification de compte (badge professionnel)
+ALTER TABLE users ADD COLUMN IF NOT EXISTS is_verified BOOLEAN DEFAULT FALSE;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS verified_since TIMESTAMP;
+ALTER TABLE videos ADD COLUMN IF NOT EXISTS chapters_text TEXT DEFAULT '';
+ALTER TABLE videos ADD COLUMN IF NOT EXISTS age_restricted BOOLEAN DEFAULT FALSE;
+
+-- v4 : Inscription self-service (email + mot de passe hashé).
+-- password_hash NULL => compte SSO/PAM historique (pas de mot de passe local).
+ALTER TABLE users ADD COLUMN IF NOT EXISTS password_hash VARCHAR(256);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_users_username_lower ON users (LOWER(username));
+CREATE UNIQUE INDEX IF NOT EXISTS idx_users_email_lower ON users (LOWER(email)) WHERE email IS NOT NULL;

@@ -4,10 +4,50 @@
 
 <div class="chips">
   <a href="{{ url_for('home') }}" class="chip {% if active_category=='Toutes' %}active{% endif %}">Toutes</a>
+  {% if current_user %}
+    <a href="#" class="chip featured" onclick="document.getElementById('section-foryou')?.scrollIntoView({behavior:'smooth'}); return false;">✨ Pour vous</a>
+  {% endif %}
   {% for cat in CATEGORIES %}
     <a href="{{ url_for('home', c=cat) }}" class="chip {% if active_category==cat %}active{% endif %}">{{ cat }}</a>
   {% endfor %}
 </div>
+
+{# ----- Sections de découverte (uniquement page d'accueil principale, user connecté) ----- #}
+{% if sections %}
+  {% for sect in sections %}
+    <section class="continue-section" id="section-{{ sect.key }}">
+      <h2 class="section-h">{{ sect.title }}</h2>
+      <div class="continue-row">
+        {% for v in sect.videos %}
+          <article class="video-card">
+            <a href="{{ url_for('watch', video_id=v.id) }}" class="thumb-wrap">
+              <img class="thumb" src="{{ url_for('thumbnail', video_id=v.id) }}" alt="{{ v.title }}" loading="lazy">
+              {% if v.duration %}<span class="duration">{{ v.duration|duration }}</span>{% endif %}
+              {% if v.progress_seconds and v.duration %}
+                <div class="progress-bar"><span style="width: {{ ((v.progress_seconds / v.duration) * 100)|round(1) }}%"></span></div>
+              {% endif %}
+            </a>
+            <div class="card-body">
+              <a href="{{ url_for('channel', username=v.username) }}" class="channel-pic">
+                <img src="{{ url_for('avatar', username=v.username) }}" alt="{{ v.display_name }}">
+              </a>
+              <div class="meta">
+                <a href="{{ url_for('watch', video_id=v.id) }}" class="card-title">{{ v.title }}</a>
+                <a href="{{ url_for('channel', username=v.username) }}" class="card-channel">{{ v.display_name }}</a>
+                <div class="card-stats">
+                  <span>{{ v.views|count }} vues</span>
+                  <span>•</span>
+                  <span>{{ v.created_at|timeago }}</span>
+                </div>
+              </div>
+            </div>
+          </article>
+        {% endfor %}
+      </div>
+    </section>
+  {% endfor %}
+  <h2 class="section-h">Toutes les vidéos</h2>
+{% endif %}
 
 {% if videos %}
   <div class="video-grid" id="videoGrid">
@@ -39,7 +79,7 @@
       <a href="?{% if active_category and active_category != 'Toutes' %}c={{ active_category }}&{% endif %}page={{ (page or 1) + 1 }}" class="btn btn-primary">Charger plus</a>
     </div>
   {% endif %}
-{% else %}
+{% elif not sections %}
   <div class="empty-state">
     <h2>Aucune vidéo à afficher</h2>
     <p>Soyez le premier à partager du contenu sur AubeVideo.</p>

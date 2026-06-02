@@ -25,7 +25,7 @@ def generate_csrf_token() -> str:
     return token
 
 
-def validate_csrf_token(token: str) -> bool:
+def validate_csrf_token(token) -> bool:
     expected = session.get("_csrf")
     if not expected or not token:
         return False
@@ -38,9 +38,20 @@ def csrf_protect(app):
     def _check_csrf():
         if request.method in ("GET", "HEAD", "OPTIONS", "TRACE"):
             return
+        # API v1 mobile/SPA : authentification Bearer => pas de CSRF
+        # (les tokens API ne sont pas transmis automatiquement par le navigateur)
+        if request.path.startswith("/api/v1/") and \
+           request.headers.get("Authorization", "").lower().startswith("bearer "):
+            return
+        # Endpoint de login API : pas de session => pas de CSRF non plus
+        if request.path == "/api/v1/auth/login":
+            return
+        # Stripe webhook signé : pas de CSRF (vérification dédiée côté handler)
+        if request.path == "/stripe/webhook":
+            return
         # Les endpoints de stream/thumb sont en GET donc OK.
         # Upload POST multipart -> token via form
-        # JSON API -> token via header
+        # JSON API session -> token via header
         token = (request.form.get("_csrf")
                  or request.headers.get("X-CSRF-Token")
                  or request.headers.get("X-CSRFToken"))
@@ -105,6 +116,9 @@ def security_headers(app):
         "base-uri 'self'; "
         "form-action 'self'"
     )
+    allowed_origins = os.environ.get(
+        "AUBEVIDEO_CORS_ORIGINS", "*"
+    ).split(",")
 
     @app.after_request
     def _apply(resp):
@@ -114,16 +128,33 @@ def security_headers(app):
                                  "camera=(), microphone=(), geolocation=()")
         # Embeds: autorise l'iframe externe (pas de X-Frame / CSP frame-ancestors libre)
         is_embed = request.path.startswith("/embed/")
-        if not is_embed:
+        is_api = request.path.startswith("/api/v1/")
+        if is_embed:
+            resp.headers.setdefault("Content-Security-Policy", "frame-ancestors *")
+        elif is_api:
+            # CORS pour clients mobiles / extensions / autres origines
+            origin = request.headers.get("Origin", "")
+            if "*" in allowed_origins or origin in allowed_origins:
+                resp.headers.setdefault("Access-Control-Allow-Origin", origin or "*")
+                resp.headers.setdefault("Vary", "Origin")
+            resp.headers.setdefault("Access-Control-Allow-Headers",
+                                    "Authorization, Content-Type, X-CSRF-Token")
+            resp.headers.setdefault("Access-Control-Allow-Methods",
+                                    "GET, POST, PUT, PATCH, DELETE, OPTIONS")
+            resp.headers.setdefault("Access-Control-Max-Age", "86400")
+        else:
             resp.headers.setdefault("X-Frame-Options", "DENY")
             resp.headers.setdefault("Content-Security-Policy", csp)
-        else:
-            resp.headers.setdefault("Content-Security-Policy", "frame-ancestors *")
         if request.is_secure or request.headers.get("X-Forwarded-Proto") == "https":
             resp.headers.setdefault(
                 "Strict-Transport-Security", "max-age=31536000; includeSubDomains"
             )
         return resp
+
+    @app.before_request
+    def _cors_preflight():
+        if request.method == "OPTIONS" and request.path.startswith("/api/v1/"):
+            return ("", 204)
 
 
 def configure_session(app):

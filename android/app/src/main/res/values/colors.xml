@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="aube_gold">#E8B84A</color>
+    <color name="aube_gold_dark">#C4973A</color>
+    <color name="aube_navy">#3A5F9E</color>
+    <color name="aube_bg_dark">#0F0F0F</color>
+    <color name="aube_bg_dark_elev">#181818</color>
+    <color name="aube_bg_light">#FFFFFF</color>
+    <color name="aube_bg_light_elev">#F4F4F4</color>
+</resources>

@@ -17,6 +17,16 @@
   <link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='img/logo.svg') }}">
   <link rel="manifest" href="{{ url_for('manifest') }}">
   <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/v3.css') }}">
+  <script>
+    /* Apply theme as early as possible to avoid flash */
+    (function() {
+      try {
+        var t = localStorage.getItem('aube-theme') || 'auto';
+        document.documentElement.setAttribute('data-theme', t);
+      } catch (_) {}
+    })();
+  </script>
   {% block head %}{% endblock %}
 </head>
 <body>
@@ -197,6 +207,7 @@
 <div id="modalRoot"></div>
 
 <script src="{{ url_for('static', filename='js/app.js') }}"></script>
+<script src="{{ url_for('static', filename='js/v3.js') }}"></script>
 <script>
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('/service-worker.js').catch(()=>{});

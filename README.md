@@ -2,33 +2,91 @@
 
 Plateforme de partage de vidéos francophone de l'écosystème **L'Aube Étoilée** — alternative souveraine à YouTube.
 
-![Port](https://img.shields.io/badge/port-5017-e8b84a) ![Stack](https://img.shields.io/badge/stack-Flask%20%2B%20PostgreSQL-3a5f9e) ![Auth](https://img.shields.io/badge/auth-PAM%20SSO-success)
+![Port](https://img.shields.io/badge/port-5017-e8b84a) ![Stack](https://img.shields.io/badge/stack-Flask%20%2B%20PostgreSQL-3a5f9e) ![Auth](https://img.shields.io/badge/auth-email%2Fmdp%20%2B%20PAM%20SSO-success) ![Deploy](https://img.shields.io/badge/deploy-Docker%20%7C%20Render-2563eb)
+
+## 🚀 Mettre en ligne (obtenir le lien prod)
+
+AubeVideo est livré clé en main pour le cloud. **Inscription self-service** (e-mail +
+mot de passe, comme YouTube) — n'importe qui peut créer un compte, plus besoin de
+comptes système.
+
+### Option A — Render, déploiement en 1 clic (gratuit, ~5 min)
+
+1. Pousser ce repo sur GitHub (déjà fait : `Aube2023/AubeVideo`).
+2. Cliquer : **https://render.com/deploy?repo=https://github.com/Aube2023/AubeVideo**
+3. Render lit [`render.yaml`](./render.yaml), provisionne PostgreSQL + le web service,
+   applique le schéma, et publie l'app. Lien final : `https://aubevideo.onrender.com`.
+
+> Le plan gratuit suffit pour une démo (stockage éphémère). Pour de la vraie prod :
+> décommenter le bloc `disk` dans `render.yaml` + passer le plan à `starter`, ou
+> brancher un stockage objet (S3 / Cloudflare R2).
+
+### Option B — Docker, auto-hébergé sur ton VPS (une commande)
+
+```bash
+git clone https://github.com/Aube2023/AubeVideo.git && cd AubeVideo
+export DB_PASSWORD="un-mot-de-passe-fort" AUBEVIDEO_SECRET="$(openssl rand -hex 32)"
+docker compose up -d --build
+# App sur http://localhost:8080 — mettre Caddy/nginx + TLS devant pour le domaine public
+```
+
+Met le tout derrière `video.aubeetoilee.com` (A → ton IP) avec Caddy ou le
+[`nginx.conf.example`](./nginx.conf.example) + certbot.
 
 ## Fonctionnalités
 
+### Plateforme web
 - 🎬 **Upload vidéos** jusqu'à 2 Go (MP4, WebM, MOV, MKV, AVI, M4V, OGV)
 - 📺 **Lecteur HTML5** avec streaming progressif (HTTP Range)
 - 👤 **Profils / chaînes** avec avatar, bio, bannière, compteur d'abonnés
-- 🔔 **Abonnements** et fil d'abonnements
-- 👍 **Likes / dislikes / commentaires** (avec réponses)
-- 🕒 **Historique** de visionnage
-- 🔍 **Recherche** vidéos + chaînes (titre, description, tags, nom)
-- 📈 **Tendances** (tri par vues)
+- 🔔 **Abonnements**, **notifications** in-app + push web (VAPID)
+- 👍 **Likes / dislikes / commentaires** (avec réponses, épinglage, ❤ par l'auteur)
+- 🕒 **Historique** de visionnage + reprise automatique (cross-device)
+- 🔍 **Recherche** vidéos + chaînes (titre, description, tags, nom) + suggestions
+- 📈 **Tendances** (vues / récence, gravity 1.5)
+- 🎯 **Sections « Pour vous »** : continuer, abonnements, recommandé, tendances
 - 🎨 **Catégories** (14 par défaut, 100 % francophones)
-- 🛠️ **Studio créateur** (stats, édition, suppression, visibilité)
+- 🛠️ **Studio créateur** (stats, édition, suppression, visibilité, sous-titres)
 - 🔒 **Visibilité** : publique / non-répertoriée / privée
-- 🌐 **Auth PAM partagée** avec AubeDocs, AubeDrive, AubeData, AubeMail, etc.
+- 🌐 **Auth PAM partagée** + **2FA TOTP**
+- 💸 **Tip jar** Stripe pour soutenir les créateurs
+- 📡 **Live streams** (RTMP + HLS)
+- ⚡ **Shorts** (vertical ≤ 60s)
+- 🎚️ **Transcoding** multi-qualités (360p / 480p / 720p) en arrière-plan
+- 🌓 **Thème clair / sombre / système** (nouveau v3)
+- 🎭 **Mode théâtre, mini-player, picture-in-picture, raccourcis clavier** (v3)
+- 🧭 **Chapitres** auto-détectés depuis la description (v3)
+- ✨ **Hover preview** sur les vignettes (v3)
+- 🔐 **CSRF, rate limiting, headers sécurité, ban admin, modération**
+
+### API REST v1 (mobile + intégrations)
+- 🔑 **Auth Bearer tokens** (création via `/api/v1/auth/login`)
+- 📦 **48 endpoints** couvrant : feeds, vidéos, commentaires, abonnements,
+  playlists, watch later, historique, notifications, push, préférences, upload, live
+- 🌍 **CORS** configurable (`AUBEVIDEO_CORS_ORIGINS`)
+- 📖 Documentation complète : [`API.md`](./API.md)
+
+### App Android native ([`android/`](./android/))
+- ⚙️ **Kotlin 2.0 + Jetpack Compose Material 3**
+- 🎬 **Media3 / ExoPlayer** : adaptive streaming, sous-titres, chapitres
+- 📲 **Background playback + Picture-in-Picture**
+- 🔔 **Push FCM**, deep linking `/watch/{id}` et `/c/{username}`
+- 🎨 **Thème** sombre / clair / système avec couleurs Aube
+- 📜 Voir [`android/README.md`](./android/README.md)
 
 ## Stack
 
 | Composant | Choix |
 |-----------|-------|
 | Backend | Flask 3 + Gunicorn |
-| DB | PostgreSQL 14+ |
-| Auth | PAM (python-pam) — SSO système Linux |
+| DB | PostgreSQL 14+ (auto-détecte `DATABASE_URL`) |
+| Auth | **Inscription e-mail/mot de passe** (hash Werkzeug) + PAM SSO en option |
+| API mobile | REST v1 JSON + Bearer tokens (`/api/v1/...`) |
 | Stockage vidéos | Filesystem `/var/www/aubevideo/uploads/{user_id}/` |
 | Streaming | HTTP Range (support seek, bandwidth adaptation) |
-| Front | Templates Jinja2 + CSS/JS vanilla (pas de framework) |
+| Transcoding | FFmpeg en arrière-plan (queue thread) |
+| Front web | Templates Jinja2 + CSS/JS vanilla, thèmes clair/sombre |
+| App Android | Kotlin 2.0 + Compose Material 3 + Media3 |
 | Port | **5017** (5014 pris par AubeNews) |
 | Domaine | `video.aubeetoilee.com` (A → 155.138.136.149) |
 

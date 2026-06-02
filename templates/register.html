@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+{% block title %}Créer un compte — AubeVideo{% endblock %}
+{% block content %}
+
+<div class="auth-card">
+  <img src="{{ url_for('static', filename='img/logo.svg') }}" alt="" class="auth-logo">
+  <h1>Créer un compte</h1>
+  <p class="auth-sub">Rejoignez AubeVideo : publiez, commentez, abonnez-vous. C'est gratuit.</p>
+
+  <form method="post" class="auth-form">
+    <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
+    <label class="field">
+      <span>Nom d'utilisateur</span>
+      <input type="text" name="username" required autofocus autocomplete="username"
+             pattern="[a-z0-9_]{3,30}" title="3 à 30 caractères : minuscules, chiffres, _"
+             value="{{ form.get('username','') }}" placeholder="ex : marie_video">
+    </label>
+    <label class="field">
+      <span>Nom affiché</span>
+      <input type="text" name="display_name" autocomplete="nickname"
+             value="{{ form.get('display_name','') }}" placeholder="Marie Dupont">
+    </label>
+    <label class="field">
+      <span>E-mail</span>
+      <input type="email" name="email" required autocomplete="email"
+             value="{{ form.get('email','') }}" placeholder="vous@exemple.com">
+    </label>
+    <label class="field">
+      <span>Mot de passe</span>
+      <input type="password" name="password" required minlength="8"
+             autocomplete="new-password" placeholder="Au moins 8 caractères">
+    </label>
+    <button type="submit" class="btn btn-primary btn-lg btn-block">Créer mon compte</button>
+  </form>
+
+  <div class="auth-foot">
+    <span>Déjà inscrit ?</span>
+    <a href="{{ url_for('login', next=request.args.get('next','')) }}"><strong>Se connecter</strong></a>
+  </div>
+</div>
+
+{% endblock %}

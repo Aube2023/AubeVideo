@@ -5,8 +5,11 @@ Domaine public : video.aubeetoilee.com
 """
 import os
 import re
+import io
 import json
+import time
 import uuid
+import zipfile
 import mimetypes
 import logging
 import logging.handlers
@@ -23,17 +26,23 @@ from flask import (
     Flask, render_template, request, redirect, url_for, session,
     jsonify, send_from_directory, abort, Response, stream_with_context, flash
 )
-from werkzeug.utils import secure_filename
 from werkzeug.middleware.proxy_fix import ProxyFix
 from PIL import Image
 
-from db import db_cursor, init_db, ensure_user
-from auth import pam_authenticate, login_required, current_user
+from db import (
+    db_cursor, init_db, ensure_user,
+    fetch_video, VISIBILITIES, normalize_visibility,
+)
+from auth import (
+    pam_authenticate, login_required, admin_required,
+    is_admin, current_user,
+    register_user, authenticate_local, normalize_username,
+)
 from security import (
     csrf_protect, security_headers, configure_session,
-    rate_limit, throttle_login, generate_csrf_token,
+    rate_limit, throttle_login,
 )
-from media import generate_thumbnail, probe_metadata
+from media import generate_thumbnail, probe_metadata, srt_to_vtt
 import notify
 import analytics
 import cache
@@ -41,6 +50,7 @@ import totp
 import push
 import transcoding
 import payments
+import recommendations
 
 # ---------- Configuration ----------
 BASE_DIR = Path(__file__).parent.resolve()
@@ -52,8 +62,36 @@ ALLOWED_IMAGE_EXTS = {"jpg", "jpeg", "png", "gif", "webp"}
 MAX_VIDEO_SIZE = 2 * 1024 * 1024 * 1024  # 2 Go
 USER_QUOTA = int(os.environ.get("AUBEVIDEO_QUOTA", 10 * 1024 * 1024 * 1024))  # 10 Go
 
+def _load_secret_key():
+    """Clé secrète STABLE entre redémarrages et workers gunicorn.
+
+    Priorité à AUBEVIDEO_SECRET. Sinon, on persiste une clé aléatoire dans un
+    fichier (au lieu de la régénérer à chaque process, ce qui invaliderait
+    toutes les sessions et casserait le multi-worker).
+    """
+    env = os.environ.get("AUBEVIDEO_SECRET")
+    if env:
+        return env
+    key_file = Path(os.environ.get("AUBEVIDEO_SECRET_FILE", BASE_DIR / ".secret_key"))
+    try:
+        if key_file.exists():
+            data = key_file.read_text().strip()
+            if data:
+                return data
+        secret = uuid.uuid4().hex + uuid.uuid4().hex
+        key_file.write_text(secret)
+        try:
+            os.chmod(key_file, 0o600)
+        except OSError:
+            pass
+        return secret
+    except OSError:
+        # FS en lecture seule : dernier recours, clé éphémère (warn au boot).
+        return "ephemeral-" + uuid.uuid4().hex
+
+
 app = Flask(__name__)
-app.secret_key = os.environ.get("AUBEVIDEO_SECRET", "change-me-in-prod-" + uuid.uuid4().hex)
+app.secret_key = _load_secret_key()
 app.config["MAX_CONTENT_LENGTH"] = MAX_VIDEO_SIZE
 app.jinja_env.autoescape = True
 
@@ -64,6 +102,10 @@ if os.environ.get("AUBEVIDEO_BEHIND_PROXY", "0") == "1":
 configure_session(app)
 csrf_protect(app)
 security_headers(app)
+
+# API REST v1 (clients mobiles, intégrations)
+from api import api_bp
+app.register_blueprint(api_bp)
 
 # ---------- Logging ----------
 log_dir = Path(os.environ.get("AUBEVIDEO_LOG_DIR", BASE_DIR / "logs"))
@@ -84,6 +126,12 @@ def allowed_file(filename, exts):
 
 
 def user_dir(user_id):
+    """Chemin vers le dossier user. NE crée pas les sous-dossiers (utilisé en lecture)."""
+    return UPLOAD_DIR / str(user_id)
+
+
+def user_dir_writable(user_id):
+    """Comme user_dir mais crée les sous-dossiers — pour les routes d'upload."""
     d = UPLOAD_DIR / str(user_id)
     for sub in ("videos", "thumbs", "avatars", "banners"):
         (d / sub).mkdir(parents=True, exist_ok=True)
@@ -151,6 +199,22 @@ CATEGORIES = [
 ]
 
 
+def _complete_login(uid, username):
+    """Met en place la session après une auth réussie (PAM ou 2FA)."""
+    session.permanent = True
+    session.pop("is_admin", None)
+    session.pop("viewed", None)
+    session["user_id"] = uid
+    session["username"] = username
+    session["display_name"] = username
+
+
+def _safe_next(default_endpoint="home"):
+    """Renvoie request.args['next'] si chemin local, sinon URL de fallback."""
+    nxt = request.args.get("next") or url_for(default_endpoint)
+    return nxt if nxt.startswith("/") else url_for(default_endpoint)
+
+
 @app.context_processor
 def inject_globals():
     uid = session.get("user_id")
@@ -160,25 +224,13 @@ def inject_globals():
         return {"current_user": current_user(), "is_admin": False,
                 "unread_notifs": 0, "CATEGORIES": CATEGORIES}
     n_unread = 0
-    is_admin = session.get("is_admin", False)
     try:
-        with db_cursor() as cur:
-            # Cache is_admin en session (rafraîchi seulement à la connexion)
-            if "is_admin" not in session:
-                cur.execute("SELECT is_admin FROM users WHERE id = %s", (uid,))
-                r = cur.fetchone()
-                is_admin = bool(r and r["is_admin"])
-                session["is_admin"] = is_admin
-            cur.execute(
-                "SELECT COUNT(*) AS c FROM notifications WHERE user_id = %s AND is_read = FALSE",
-                (uid,),
-            )
-            n_unread = cur.fetchone()["c"]
+        n_unread = notify.unread_count(uid)
     except Exception:
         pass
     return {
         "current_user": current_user(),
-        "is_admin": is_admin,
+        "is_admin": is_admin(uid),
         "unread_notifs": n_unread,
         "CATEGORIES": CATEGORIES,
     }
@@ -197,43 +249,73 @@ def _pagination(page, per_page=24):
 @app.route("/login", methods=["GET", "POST"])
 def login():
     if request.method == "POST":
-        username = (request.form.get("username") or "").strip().lower()
+        identifier = (request.form.get("username") or "").strip().lower()
         password = request.form.get("password") or ""
-        if not throttle_login(username):
+        if not throttle_login(identifier):
             flash("Trop de tentatives. Réessayez dans quelques minutes.", "error")
             return render_template("login.html")
-        if not pam_authenticate(username, password):
-            app.logger.warning("Login échoué pour %s (%s)", username, request.remote_addr)
+
+        # 1) Compte local (email/username + mot de passe hashé).
+        user = authenticate_local(identifier, password)
+        if user:
+            uid, username = user["id"], user["username"]
+            is_banned, totp_enabled = user["is_banned"], user["totp_enabled"]
+        # 2) Fallback SSO PAM (écosystème L'Aube Étoilée).
+        elif pam_authenticate(identifier, password):
+            uid = ensure_user(identifier, display_name=identifier)
+            with db_cursor() as cur:
+                cur.execute("SELECT username, is_banned, totp_enabled FROM users WHERE id = %s", (uid,))
+                row = cur.fetchone()
+            username = row["username"] if row else identifier
+            is_banned = bool(row and row["is_banned"])
+            totp_enabled = bool(row and row["totp_enabled"])
+        else:
+            app.logger.warning("Login échoué pour %s (%s)", identifier, request.remote_addr)
             flash("Identifiants invalides.", "error")
             return render_template("login.html")
-        uid = ensure_user(username, display_name=username)
-        with db_cursor() as cur:
-            cur.execute("SELECT is_banned, totp_enabled FROM users WHERE id = %s", (uid,))
-            row = cur.fetchone()
-            if row and row["is_banned"]:
-                flash("Ce compte a été suspendu.", "error")
-                return render_template("login.html")
 
-        # Si 2FA activé : login en 2 étapes
-        if row and row["totp_enabled"]:
+        if is_banned:
+            flash("Ce compte a été suspendu.", "error")
+            return render_template("login.html")
+
+        # 2FA activé : on stocke l'état pendant et on redirige
+        if totp_enabled:
             session["_pending_uid"] = uid
             session["_pending_username"] = username
-            session["_pending_next"] = request.args.get("next") or url_for("home")
+            session["_pending_next"] = _safe_next()
             return redirect(url_for("login_2fa"))
 
-        session.permanent = True
-        session.pop("is_admin", None)
-        session.pop("viewed", None)
-        session["user_id"] = uid
-        session["username"] = username
-        session["display_name"] = username
+        _complete_login(uid, username)
         app.logger.info("Connexion de %s", username)
         flash("Connecté.", "success")
-        nxt = request.args.get("next") or url_for("home")
-        if not nxt.startswith("/"):
-            nxt = url_for("home")
-        return redirect(nxt)
+        return redirect(_safe_next())
     return render_template("login.html")
+
+
+@app.route("/register", methods=["GET", "POST"])
+def register():
+    """Inscription self-service : email + mot de passe (comme YouTube)."""
+    if session.get("user_id"):
+        return redirect(url_for("home"))
+    if request.method == "POST":
+        username = (request.form.get("username") or "").strip().lower()
+        email = (request.form.get("email") or "").strip().lower()
+        password = request.form.get("password") or ""
+        display_name = (request.form.get("display_name") or "").strip() or username
+        if not throttle_login("register:" + (request.remote_addr or "anon"), max_attempts=8):
+            flash("Trop de tentatives. Réessayez dans quelques minutes.", "error")
+            return render_template("register.html", form=request.form)
+
+        uid, err = register_user(username, email, password, display_name=display_name)
+        if err:
+            flash(err, "error")
+            return render_template("register.html", form=request.form)
+
+        _complete_login(uid, username)
+        app.logger.info("Inscription de %s", username)
+        flash("Bienvenue sur AubeVideo ! Votre compte est créé.", "success")
+        return redirect(_safe_next())
+    return render_template("register.html", form={})
 
 
 @app.route("/login/2fa", methods=["GET", "POST"])
@@ -252,16 +334,9 @@ def login_2fa():
         nxt = session.pop("_pending_next", url_for("home"))
         uname = session.pop("_pending_username", "")
         session.pop("_pending_uid", None)
-        session.permanent = True
-        session.pop("is_admin", None)
-        session.pop("viewed", None)
-        session["user_id"] = uid
-        session["username"] = uname
-        session["display_name"] = uname
+        _complete_login(uid, uname)
         flash("Connecté.", "success")
-        if not nxt.startswith("/"):
-            nxt = url_for("home")
-        return redirect(nxt)
+        return redirect(nxt if nxt.startswith("/") else url_for("home"))
     return render_template("login_2fa.html")
 
 
@@ -277,6 +352,18 @@ def logout():
 def home():
     category = request.args.get("c")
     page, offset, per = _pagination(request.args.get("page"), per_page=36)
+    sections = []
+    uid = session.get("user_id")
+
+    # En home par défaut (sans filtre, page 1, utilisateur connecté) on affiche
+    # les sections multi-rangées « Reprendre », « Pour vous », « Tendances », etc.
+    show_sections = (not category or category == "Toutes") and page == 1 and uid is not None
+    if show_sections:
+        try:
+            sections = recommendations.discover_sections(uid)
+        except Exception:
+            sections = []
+
     with db_cursor() as cur:
         sql = """SELECT v.*, u.username, u.display_name, u.avatar_url
                  FROM videos v JOIN users u ON v.user_id = u.id
@@ -291,6 +378,7 @@ def home():
         videos = cur.fetchall()
     return render_template("index.html",
                            videos=videos,
+                           sections=sections,
                            active_category=category or "Toutes",
                            page=page,
                            has_more=len(videos) == per)
@@ -422,9 +510,7 @@ def upload():
         description = request.form.get("description") or ""
         category = request.form.get("category") or "Général"
         tags = request.form.get("tags") or ""
-        visibility = request.form.get("visibility") or "public"
-        if visibility not in ("public", "unlisted", "private"):
-            visibility = "public"
+        visibility = normalize_visibility(request.form.get("visibility"))
         video_file = request.files.get("video")
         thumb_file = request.files.get("thumbnail")
 
@@ -435,7 +521,7 @@ def upload():
             flash("Fichier vidéo invalide.", "error")
             return redirect(url_for("upload"))
 
-        ud = user_dir(uid)
+        ud = user_dir_writable(uid)
         ext = video_file.filename.rsplit(".", 1)[1].lower()
         video_id_str = uuid.uuid4().hex
         video_filename = f"{video_id_str}.{ext}"
@@ -509,14 +595,7 @@ def upload():
 @app.route("/watch/<int:video_id>")
 def watch(video_id):
     with db_cursor(commit=True) as cur:
-        cur.execute(
-            """SELECT v.*, u.username, u.display_name, u.avatar_url,
-                      u.subscriber_count, u.bio
-               FROM videos v JOIN users u ON v.user_id = u.id
-               WHERE v.id = %s AND v.is_removed = FALSE""",
-            (video_id,),
-        )
-        video = cur.fetchone()
+        video = fetch_video(cur, video_id, with_user=True)
         if not video:
             abort(404)
         if video["visibility"] == "private":
@@ -525,8 +604,7 @@ def watch(video_id):
 
         # Dédup: 1 vue / vidéo / session toutes les 6h
         viewed = session.get("viewed", {})
-        import time as _t
-        now = _t.time()
+        now = time.time()
         last = viewed.get(str(video_id), 0)
         if now - last > 6 * 3600:
             cur.execute(
@@ -841,7 +919,7 @@ def settings():
         if avatar_file and allowed_file(avatar_file.filename, ALLOWED_IMAGE_EXTS):
             ext = avatar_file.filename.rsplit(".", 1)[1].lower()
             avatar_name = f"avatar.{ext}"
-            path = user_dir(uid) / "avatars" / avatar_name
+            path = user_dir_writable(uid) / "avatars" / avatar_name
             avatar_file.save(str(path))
             try:
                 img = Image.open(path)
@@ -852,7 +930,7 @@ def settings():
         if banner_file and allowed_file(banner_file.filename, ALLOWED_IMAGE_EXTS):
             ext = banner_file.filename.rsplit(".", 1)[1].lower()
             banner_name = f"banner.{ext}"
-            path = user_dir(uid) / "banners" / banner_name
+            path = user_dir_writable(uid) / "banners" / banner_name
             banner_file.save(str(path))
             try:
                 img = Image.open(path)
@@ -1099,10 +1177,7 @@ def delete_comment(video_id, comment_id):
         row = cur.fetchone()
         if not row:
             return jsonify({"error": "introuvable"}), 404
-        cur.execute("SELECT is_admin FROM users WHERE id = %s", (uid,))
-        admin_row = cur.fetchone()
-        is_admin = bool(admin_row and admin_row["is_admin"])
-        if row["user_id"] != uid and row["owner"] != uid and not is_admin:
+        if row["user_id"] != uid and row["owner"] != uid and not is_admin(uid):
             return jsonify({"error": "interdit"}), 403
         # Compte les réponses imbriquées (qui cascadent aussi)
         cur.execute(
@@ -1189,6 +1264,34 @@ def my_subscriptions():
     return render_template("my_subscriptions.html", subs=subs)
 
 
+# ---------- Progress save (sync mobile/web) ----------
+@app.route("/api/video/<int:video_id>/progress", methods=["POST"])
+@login_required
+@rate_limit(limit=120, window=60)
+def save_progress_web(video_id):
+    data = request.get_json(silent=True) or {}
+    try:
+        seconds = max(0, int(data.get("seconds") or 0))
+    except (TypeError, ValueError):
+        return jsonify({"error": "seconds invalide"}), 400
+    uid = session["user_id"]
+    with db_cursor(commit=True) as cur:
+        cur.execute(
+            """UPDATE watch_history SET progress_seconds = %s, watched_at = CURRENT_TIMESTAMP
+               WHERE id = (SELECT id FROM watch_history
+                           WHERE user_id = %s AND video_id = %s
+                           ORDER BY watched_at DESC LIMIT 1)""",
+            (seconds, uid, video_id),
+        )
+        if cur.rowcount == 0:
+            cur.execute(
+                """INSERT INTO watch_history (user_id, video_id, progress_seconds)
+                   VALUES (%s, %s, %s)""",
+                (uid, video_id, seconds),
+            )
+    return jsonify({"ok": True})
+
+
 # ---------- Watch later ----------
 @app.route("/api/watch-later/<int:video_id>", methods=["POST"])
 @login_required
@@ -1267,7 +1370,7 @@ def create_playlist():
     data = request.get_json(silent=True) or {}
     title = (data.get("title") or "").strip()
     visibility = data.get("visibility", "public")
-    if not title or visibility not in ("public", "unlisted", "private"):
+    if not title or visibility not in VISIBILITIES:
         return jsonify({"error": "paramètres invalides"}), 400
     with db_cursor(commit=True) as cur:
         cur.execute(
@@ -1330,9 +1433,7 @@ def delete_video(video_id):
         v = cur.fetchone()
         if not v:
             return jsonify({"error": "introuvable"}), 404
-        cur.execute("SELECT is_admin FROM users WHERE id = %s", (uid,))
-        a = cur.fetchone()
-        if v["user_id"] != uid and not (a and a["is_admin"]):
+        if v["user_id"] != uid and not is_admin(uid):
             return jsonify({"error": "interdit"}), 403
         try:
             ud = user_dir(v["user_id"])
@@ -1356,11 +1457,19 @@ def delete_video(video_id):
     return jsonify({"ok": True})
 
 
+VIDEO_PATCH_FIELDS = ("title", "description", "category", "visibility", "tags")
+
+
 @app.route("/api/video/<int:video_id>", methods=["PATCH"])
 @login_required
 def update_video(video_id):
     uid = session["user_id"]
     data = request.get_json(silent=True) or {}
+    fields = {k: data[k] for k in VIDEO_PATCH_FIELDS if k in data}
+    if "visibility" in fields and fields["visibility"] not in VISIBILITIES:
+        return jsonify({"error": "visibilité invalide"}), 400
+    if not fields:
+        return jsonify({"ok": True})
     with db_cursor(commit=True) as cur:
         cur.execute("SELECT user_id FROM videos WHERE id = %s", (video_id,))
         v = cur.fetchone()
@@ -1368,14 +1477,6 @@ def update_video(video_id):
             return jsonify({"error": "introuvable"}), 404
         if v["user_id"] != uid:
             return jsonify({"error": "interdit"}), 403
-        fields = {}
-        for k in ("title", "description", "category", "visibility", "tags"):
-            if k in data:
-                fields[k] = data[k]
-        if "visibility" in fields and fields["visibility"] not in ("public", "unlisted", "private"):
-            return jsonify({"error": "visibilité invalide"}), 400
-        if not fields:
-            return jsonify({"ok": True})
         sets = ", ".join(f"{k} = %s" for k in fields)
         params = list(fields.values()) + [video_id]
         cur.execute(f"UPDATE videos SET {sets}, updated_at = NOW() WHERE id = %s", params)
@@ -1419,22 +1520,6 @@ def create_report():
 
 
 # ---------- Admin panel ----------
-def admin_required(f):
-    from functools import wraps
-    @wraps(f)
-    def wrapper(*args, **kwargs):
-        uid = session.get("user_id")
-        if not uid:
-            return redirect(url_for("login"))
-        with db_cursor() as cur:
-            cur.execute("SELECT is_admin FROM users WHERE id = %s", (uid,))
-            r = cur.fetchone()
-        if not r or not r["is_admin"]:
-            abort(403)
-        return f(*args, **kwargs)
-    return wrapper
-
-
 @app.route("/admin")
 @admin_required
 def admin_home():
@@ -1541,11 +1626,8 @@ def video_series_api(video_id):
         v = cur.fetchone()
         if not v:
             return jsonify({"error": "introuvable"}), 404
-        if v["user_id"] != uid:
-            cur.execute("SELECT is_admin FROM users WHERE id = %s", (uid,))
-            a = cur.fetchone()
-            if not (a and a["is_admin"]):
-                return jsonify({"error": "interdit"}), 403
+        if v["user_id"] != uid and not is_admin(uid):
+            return jsonify({"error": "interdit"}), 403
     days = int(request.args.get("days", 30))
     days = max(7, min(days, 365))
     return jsonify(analytics.video_series(video_id, days=days))
@@ -1653,10 +1735,11 @@ def captions_api(video_id):
     if not session.get("user_id"):
         return jsonify({"error": "auth"}), 401
     with db_cursor() as cur:
-        cur.execute("SELECT user_id FROM videos WHERE id = %s", (video_id,))
-        v = cur.fetchone()
-        if not v or v["user_id"] != session["user_id"]:
-            return jsonify({"error": "interdit"}), 403
+        v = fetch_video(cur, video_id)
+    if not v:
+        return jsonify({"error": "introuvable"}), 404
+    if v["user_id"] != session["user_id"]:
+        return jsonify({"error": "interdit"}), 403
 
     file = request.files.get("file")
     lang = request.form.get("lang", "fr")[:10]
@@ -1669,7 +1752,7 @@ def captions_api(video_id):
     path = ud / "captions" / fname
     content = file.read().decode("utf-8", errors="ignore")
     if file.filename.endswith(".srt"):
-        content = _srt_to_vtt(content)
+        content = srt_to_vtt(content)
     path.write_text(content, encoding="utf-8")
     with db_cursor(commit=True) as cur:
         cur.execute(
@@ -1679,16 +1762,6 @@ def captions_api(video_id):
         )
         cap_id = cur.fetchone()["id"]
     return jsonify({"id": cap_id, "lang": lang, "label": label})
-
-
-def _srt_to_vtt(text: str) -> str:
-    out = ["WEBVTT", ""]
-    for line in text.splitlines():
-        if "-->" in line:
-            line = line.replace(",", ".")
-        if not line.strip().isdigit():
-            out.append(line)
-    return "\n".join(out)
 
 
 @app.route("/caption/<int:caption_id>")
@@ -1792,6 +1865,10 @@ def tip_page(username):
         if amount_cents < 100:
             flash("Montant minimum 1 €.", "error")
             return redirect(url_for("tip_page", username=username))
+        # Garde-fou : Stripe refuse au-delà mais on coupe avant pour un message clair
+        if amount_cents > 1_000_000:
+            flash("Montant maximum 10 000 €.", "error")
+            return redirect(url_for("tip_page", username=username))
         url = payments.create_checkout(
             session.get("user_id"), u["id"], u["display_name"],
             amount_cents, message,
@@ -1867,39 +1944,32 @@ def live_callback():
 
 
 # ---------- GDPR export ----------
+GDPR_EXPORT_QUERIES = (
+    ("user.json",          "SELECT * FROM users WHERE id = %s"),
+    ("videos.json",        "SELECT * FROM videos WHERE user_id = %s"),
+    ("comments.json",      "SELECT * FROM comments WHERE user_id = %s"),
+    ("subscriptions.json", "SELECT * FROM subscriptions WHERE subscriber_id = %s"),
+    ("history.json",       "SELECT * FROM watch_history WHERE user_id = %s"),
+)
+
+
 @app.route("/settings/export")
 @login_required
 def gdpr_export():
     uid = session["user_id"]
-    import zipfile
-    import io
-    import csv
     buf = io.BytesIO()
-    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
-        with db_cursor() as cur:
-            cur.execute("SELECT * FROM users WHERE id = %s", (uid,))
-            user = cur.fetchone()
-            z.writestr("user.json", json.dumps(dict(user), default=str, ensure_ascii=False, indent=2))
-
-            cur.execute("SELECT * FROM videos WHERE user_id = %s", (uid,))
-            videos = [dict(v) for v in cur.fetchall()]
-            z.writestr("videos.json", json.dumps(videos, default=str, ensure_ascii=False, indent=2))
-
-            cur.execute("SELECT * FROM comments WHERE user_id = %s", (uid,))
-            comments = [dict(c) for c in cur.fetchall()]
-            z.writestr("comments.json", json.dumps(comments, default=str, ensure_ascii=False, indent=2))
-
-            cur.execute("SELECT * FROM subscriptions WHERE subscriber_id = %s", (uid,))
-            subs = [dict(s) for s in cur.fetchall()]
-            z.writestr("subscriptions.json", json.dumps(subs, default=str, ensure_ascii=False, indent=2))
-
-            cur.execute("SELECT * FROM watch_history WHERE user_id = %s", (uid,))
-            history = [dict(h) for h in cur.fetchall()]
-            z.writestr("history.json", json.dumps(history, default=str, ensure_ascii=False, indent=2))
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z, db_cursor() as cur:
+        for fname, sql in GDPR_EXPORT_QUERIES:
+            cur.execute(sql, (uid,))
+            rows = cur.fetchall()
+            payload = dict(rows[0]) if (fname == "user.json" and rows) else [dict(r) for r in rows]
+            z.writestr(fname, json.dumps(payload, default=str, ensure_ascii=False, indent=2))
     buf.seek(0)
-    return Response(buf.getvalue(),
-                    mimetype="application/zip",
-                    headers={"Content-Disposition": f"attachment; filename=aubevideo-export-{uid}.zip"})
+    return Response(
+        buf.getvalue(),
+        mimetype="application/zip",
+        headers={"Content-Disposition": f"attachment; filename=aubevideo-export-{uid}.zip"},
+    )
 
 
 # ---------- SEO: sitemap + robots + manifest ----------

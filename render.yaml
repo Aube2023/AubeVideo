@@ -1,0 +1,42 @@
+# AubeVideo — Blueprint Render (déploiement one-click).
+# Doc : https://render.com/docs/blueprint-spec
+#
+# Tier GRATUIT par défaut (web + PostgreSQL) → l'app est en ligne sans carte.
+# ⚠️ Sur le plan free, le stockage est éphémère : les vidéos uploadées sont
+#    perdues au redéploiement. Pour de la vraie prod, voir le bloc `disk` plus
+#    bas + passer le plan à `starter` (ou brancher un stockage objet S3/R2).
+
+databases:
+  - name: aubevideo-db
+    plan: free
+    databaseName: aubevideo
+    user: aubevideo
+
+services:
+  - type: web
+    name: aubevideo
+    runtime: docker
+    plan: free
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: aubevideo-db
+          property: connectionString
+      - key: AUBEVIDEO_SECRET
+        generateValue: true          # clé de session aléatoire stable
+      - key: AUBEVIDEO_PAM_LOGIN
+        value: "0"                    # pas de PAM dans le cloud : auth email/mdp
+      - key: AUBEVIDEO_BEHIND_PROXY
+        value: "1"
+      - key: AUBEVIDEO_HTTPS
+        value: "1"
+      - key: WEB_CONCURRENCY
+        value: "2"
+    # ── Pour de la vraie prod (plan payant), décommenter pour des uploads
+    #    persistants, et passer `plan: free` -> `plan: starter` ci-dessus :
+    # disk:
+    #   name: aubevideo-uploads
+    #   mountPath: /app/uploads
+    #   sizeGB: 10

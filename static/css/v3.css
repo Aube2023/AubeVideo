@@ -1,0 +1,268 @@
+/* ========================================
+   AubeVideo v3 — améliorations professionnelles
+   Light/Dark theme, skeleton loaders, mini-player,
+   mode théâtre, transitions, chapitres, etc.
+   Surcharge style.css sans modification.
+======================================== */
+
+/* ===== THEMES ===== */
+:root {
+  color-scheme: dark;
+}
+
+html[data-theme="light"] {
+  color-scheme: light;
+  --bg: #ffffff;
+  --bg-elev: #f4f4f4;
+  --bg-hover: #e8e8e8;
+  --bg-card: #ffffff;
+  --text: #111111;
+  --text-dim: #555555;
+  --text-muted: #888888;
+  --border: #e0e0e0;
+  --accent: #c4973a;
+  --accent-hover: #b6862a;
+  --accent-dark: #8a6519;
+  --primary: #3a5f9e;
+  --danger: #d63131;
+}
+
+html[data-theme="auto"] {
+  /* Suit le système, voir media query plus bas */
+}
+
+@media (prefers-color-scheme: light) {
+  html[data-theme="auto"] {
+    color-scheme: light;
+    --bg: #ffffff;
+    --bg-elev: #f4f4f4;
+    --bg-hover: #e8e8e8;
+    --bg-card: #ffffff;
+    --text: #111111;
+    --text-dim: #555555;
+    --text-muted: #888888;
+    --border: #e0e0e0;
+    --accent: #c4973a;
+    --accent-hover: #b6862a;
+    --primary: #3a5f9e;
+    --danger: #d63131;
+  }
+}
+
+body {
+  transition: background-color .15s ease, color .15s ease;
+}
+
+/* ===== HEADER : bouton thème ===== */
+.theme-btn {
+  width: 40px; height: 40px; border-radius: 50%;
+  display: grid; place-items: center;
+  color: var(--text); transition: background .15s;
+}
+.theme-btn:hover { background: var(--bg-hover); }
+.theme-btn .icon-dark { display: none; }
+.theme-btn .icon-light { display: block; }
+html[data-theme="light"] .theme-btn .icon-dark { display: block; }
+html[data-theme="light"] .theme-btn .icon-light { display: none; }
+
+/* ===== SKELETON LOADERS ===== */
+.skeleton {
+  position: relative; overflow: hidden;
+  background: var(--bg-elev);
+  border-radius: 8px;
+}
+.skeleton::after {
+  content: ""; position: absolute; inset: 0;
+  background: linear-gradient(90deg,
+    transparent 0%,
+    rgba(255,255,255,.04) 50%,
+    transparent 100%);
+  animation: shimmer 1.4s linear infinite;
+}
+html[data-theme="light"] .skeleton::after {
+  background: linear-gradient(90deg,
+    transparent 0%,
+    rgba(0,0,0,.04) 50%,
+    transparent 100%);
+}
+@keyframes shimmer { 0% { transform: translateX(-100%); } 100% { transform: translateX(100%); } }
+
+.skeleton-card { display: flex; flex-direction: column; gap: 12px; }
+.skeleton-card .thumb-wrap { aspect-ratio: 16/9; border-radius: var(--radius); }
+.skeleton-line { height: 12px; border-radius: 6px; }
+.skeleton-line.short { width: 60%; }
+
+/* ===== CARD HOVER : transition cleaner ===== */
+.video-card { transition: transform .15s ease; }
+.video-card:hover { transform: translateY(-2px); }
+
+/* ===== MODE THEATRE / CINEMA ===== */
+.theater-mode .main { margin-left: 0; padding: 16px 16px 80px; max-width: 100%; }
+.theater-mode .sidebar { transform: translateX(-100%); }
+.theater-mode .watch-layout { grid-template-columns: 1fr; max-width: 100%; }
+.theater-mode .player-wrap { aspect-ratio: 21/9; max-height: 80vh; border-radius: 0; }
+
+/* ===== MINI-PLAYER ===== */
+.miniplayer {
+  position: fixed; bottom: 16px; right: 16px;
+  width: 360px; max-width: 50vw; aspect-ratio: 16/9;
+  background: #000; border-radius: 8px; overflow: hidden;
+  box-shadow: 0 10px 32px rgba(0,0,0,.5);
+  z-index: 200; cursor: grab;
+  transition: transform .2s ease, opacity .2s ease;
+}
+.miniplayer.hidden { transform: translateY(110%); opacity: 0; pointer-events: none; }
+.miniplayer .mp-close {
+  position: absolute; top: 6px; right: 6px;
+  width: 28px; height: 28px; border-radius: 50%;
+  background: rgba(0,0,0,.6); color: #fff;
+  display: grid; place-items: center; z-index: 2;
+}
+.miniplayer .mp-expand {
+  position: absolute; top: 6px; right: 40px;
+  width: 28px; height: 28px; border-radius: 50%;
+  background: rgba(0,0,0,.6); color: #fff;
+  display: grid; place-items: center; z-index: 2;
+  font-size: 14px;
+}
+.miniplayer .mp-info {
+  position: absolute; left: 0; right: 0; bottom: 0;
+  padding: 6px 10px; font-size: 12px; color: #fff;
+  background: linear-gradient(to top, rgba(0,0,0,.85), transparent);
+  pointer-events: none;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+
+/* ===== CHAPTERS LIST ===== */
+.chapters-list {
+  margin-top: 12px; display: flex; flex-direction: column; gap: 4px;
+  border-top: 1px solid var(--border); padding-top: 12px;
+}
+.chapter-row {
+  display: flex; align-items: center; gap: 12px; padding: 6px 8px;
+  border-radius: 6px; cursor: pointer; transition: background .12s;
+  color: var(--text);
+}
+.chapter-row:hover { background: var(--bg-hover); }
+.chapter-time {
+  font-variant-numeric: tabular-nums; color: var(--accent);
+  font-weight: 600; min-width: 56px;
+}
+
+/* ===== QUALITY SELECTOR ===== */
+.quality-selector {
+  position: absolute; bottom: 60px; right: 12px;
+  background: rgba(0,0,0,.85); color: #fff; padding: 6px;
+  border-radius: 8px; min-width: 110px; display: none;
+  z-index: 4; backdrop-filter: blur(8px);
+}
+.quality-selector.open { display: block; }
+.quality-selector .q-item {
+  display: block; padding: 8px 14px; width: 100%; text-align: left;
+  border-radius: 6px; color: #fff; cursor: pointer;
+}
+.quality-selector .q-item:hover { background: rgba(255,255,255,.12); }
+.quality-selector .q-item.active { color: var(--accent); font-weight: 600; }
+
+/* ===== TOAST ===== */
+.toast {
+  position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%);
+  background: var(--bg-elev); color: var(--text);
+  border: 1px solid var(--border); border-radius: 24px;
+  padding: 10px 18px; font-size: 14px; z-index: 3000;
+  box-shadow: 0 10px 32px rgba(0,0,0,.4); animation: toastIn .25s ease;
+}
+@keyframes toastIn { from { opacity: 0; transform: translate(-50%, 20px); } to { opacity: 1; transform: translate(-50%, 0); } }
+
+/* ===== KEYBOARD HINTS OVERLAY ===== */
+.kbd-hints {
+  position: fixed; inset: 0; background: rgba(0,0,0,.6); z-index: 4000;
+  display: none; align-items: center; justify-content: center;
+}
+.kbd-hints.open { display: flex; }
+.kbd-hints-box {
+  background: var(--bg-elev); border-radius: 12px; padding: 24px;
+  border: 1px solid var(--border); max-width: 540px; width: 90%;
+}
+.kbd-hints-box h3 { margin-bottom: 16px; font-size: 18px; }
+.kbd-row { display: grid; grid-template-columns: 80px 1fr; gap: 12px; padding: 6px 0; align-items: center; }
+.kbd { background: var(--bg-hover); padding: 4px 8px; border-radius: 6px;
+       font-family: monospace; font-size: 13px; text-align: center; }
+
+/* ===== AUTH PAGE CENTERING ===== */
+.auth-only .topbar, .auth-only .sidebar { display: none; }
+.auth-only .main { margin-left: 0; padding-top: 80px; }
+
+/* ===== FOCUS RING (accessibility) ===== */
+button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visible {
+  outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 6px;
+}
+
+/* ===== TRENDING / FOR YOU CHIPS ===== */
+.chip.featured {
+  background: linear-gradient(135deg, var(--accent), var(--primary));
+  color: #fff;
+}
+
+/* ===== PROGRESS BAR sur cartes (historique) ===== */
+.progress-bar {
+  position: absolute; bottom: 0; left: 0; right: 0;
+  height: 3px; background: rgba(255,255,255,.2);
+}
+.progress-bar > span {
+  display: block; height: 100%; background: var(--accent);
+}
+
+/* ===== HOVER PREVIEW (premières secondes au survol) ===== */
+.thumb-wrap video.hover-preview {
+  position: absolute; inset: 0; width: 100%; height: 100%;
+  object-fit: cover; opacity: 0; transition: opacity .2s; pointer-events: none;
+}
+.video-card:hover .thumb-wrap video.hover-preview { opacity: 1; }
+
+/* ===== VERIFIED BADGE ===== */
+.verified-badge {
+  display: inline-block; color: var(--primary); font-weight: bold;
+  margin-left: 4px;
+}
+.verified-badge::before { content: "✓"; }
+
+/* ===== RESPONSIVE LAYOUT ===== */
+@media (max-width: 900px) {
+  .sidebar {
+    position: fixed; top: var(--topbar-h); left: 0; bottom: 0;
+    transform: translateX(-100%); transition: transform .2s ease;
+    z-index: 100; box-shadow: 0 0 32px rgba(0,0,0,.4);
+  }
+  .sidebar.open { transform: translateX(0); }
+  .main { margin-left: 0; padding: 16px; }
+  .watch-layout { grid-template-columns: 1fr; }
+  .search-wrap { display: none; }
+  .topbar { padding: 0 8px; }
+}
+@media (max-width: 600px) {
+  .topbar-left .brand-text { display: none; }
+  .btn-upload span, .btn-login span { display: none; }
+}
+
+/* ===== HISTORY / WATCH-LATER : continue watching ===== */
+.continue-section { margin-bottom: 32px; }
+.continue-row { display: flex; gap: 16px; overflow-x: auto; padding-bottom: 8px; }
+.continue-row::-webkit-scrollbar { height: 6px; }
+.continue-row::-webkit-scrollbar-thumb { background: var(--bg-hover); border-radius: 4px; }
+.continue-row .video-card { min-width: 280px; max-width: 280px; }
+
+/* ===== PROFESSIONAL POLISH ===== */
+.brand-logo { transition: transform .3s ease; }
+.brand:hover .brand-logo { transform: rotate(-10deg); }
+.btn-upload, .btn-login { transition: background .15s, transform .15s; }
+.btn-upload:active, .btn-login:active { transform: scale(.97); }
+
+/* ===== PLAYER OVERLAY (gestures mobile) ===== */
+.player-overlay {
+  position: absolute; inset: 0; pointer-events: none;
+  display: grid; place-items: center;
+  font-size: 32px; color: rgba(255,255,255,.9);
+  opacity: 0; transition: opacity .2s;
+}
+.player-overlay.show { opacity: 1; }
