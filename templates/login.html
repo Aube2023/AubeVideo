@@ -5,7 +5,7 @@
 <div class="auth-card">
   <img src="{{ url_for('static', filename='img/logo.svg') }}" alt="" class="auth-logo">
   <h1>Connexion à AubeVideo</h1>
-  <p class="auth-sub">Connectez-vous avec votre e-mail (ou nom d'utilisateur) et votre mot de passe.</p>
+  <p class="auth-sub">Avec votre compte <strong>AubeMail</strong> (e-mail + mot de passe) ou votre compte AubeVideo.</p>
 
   <form method="post" class="auth-form">
     <input type="hidden" name="_csrf" value="{{ csrf_token() }}">

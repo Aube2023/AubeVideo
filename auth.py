@@ -14,6 +14,7 @@ from flask import session, redirect, url_for, jsonify, request, abort
 from werkzeug.security import generate_password_hash, check_password_hash
 
 from db import db_cursor
+import aubemail_sso
 
 DEV_MODE = os.environ.get("AUBEVIDEO_DEV_MODE", "0") == "1"
 # Autoriser le fallback PAM (SSO écosystème). Désactivé par défaut en prod cloud.
@@ -109,6 +110,47 @@ def set_password(user_id, password):
         cur.execute("UPDATE users SET password_hash = %s WHERE id = %s",
                     (generate_password_hash(password), user_id))
     return True, ""
+
+
+# ---------- SSO AubeMail (identité partagée de l'écosystème) ----------
+def _unique_username(cur, base):
+    """Dérive un nom d'utilisateur valide et unique depuis un email/nom."""
+    base = re.sub(r"[^a-z0-9_]", "_", (base or "").lower()).strip("_")
+    if len(base) < 3:
+        base = base + "user"
+    base = base[:24] or "user"
+    candidate, i = base, 1
+    while True:
+        cur.execute("SELECT 1 FROM users WHERE LOWER(username) = %s", (candidate,))
+        if not cur.fetchone():
+            return candidate
+        i += 1
+        candidate = f"{base}{i}"[:30]
+
+
+def authenticate_aubemail(identifier, password):
+    """Login via un compte AubeMail. Provisionne/relie le compte AubeVideo
+    (par email) à la première connexion. Renvoie un dict user ou None."""
+    am = aubemail_sso.authenticate(identifier, password)
+    if not am:
+        return None
+    with db_cursor(commit=True) as cur:
+        cur.execute(
+            "SELECT id, username, is_banned, totp_enabled FROM users WHERE LOWER(email) = %s LIMIT 1",
+            (am["email"],),
+        )
+        row = cur.fetchone()
+        if not row:
+            username = _unique_username(cur, am["email"].split("@")[0])
+            cur.execute(
+                """INSERT INTO users (username, display_name, email, avatar_url)
+                   VALUES (%s, %s, %s, %s)
+                   RETURNING id, username, is_banned, totp_enabled""",
+                (username, am.get("display_name") or username,
+                 am["email"], am.get("avatar_url") or ""),
+            )
+            row = cur.fetchone()
+    return dict(row)
 
 
 # ---------- PAM (SSO écosystème, fallback) ----------

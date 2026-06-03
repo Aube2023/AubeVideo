@@ -36,7 +36,7 @@ from db import (
 from auth import (
     pam_authenticate, login_required, admin_required,
     is_admin, current_user,
-    register_user, authenticate_local, normalize_username,
+    register_user, authenticate_local, authenticate_aubemail, normalize_username,
 )
 from security import (
     csrf_protect, security_headers, configure_session,
@@ -256,11 +256,13 @@ def login():
             return render_template("login.html")
 
         # 1) Compte local (email/username + mot de passe hashé).
-        user = authenticate_local(identifier, password)
+        # 2) SSO AubeMail (identifiants de l'écosystème, vérif bcrypt).
+        user = authenticate_local(identifier, password) \
+            or authenticate_aubemail(identifier, password)
         if user:
             uid, username = user["id"], user["username"]
             is_banned, totp_enabled = user["is_banned"], user["totp_enabled"]
-        # 2) Fallback SSO PAM (écosystème L'Aube Étoilée).
+        # 3) Fallback SSO PAM (comptes système de l'écosystème).
         elif pam_authenticate(identifier, password):
             uid = ensure_user(identifier, display_name=identifier)
             with db_cursor() as cur:

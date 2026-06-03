@@ -5,6 +5,7 @@ Pillow>=10.2.0
 gunicorn>=21.2.0
 python-dotenv>=1.0.0
 Werkzeug>=3.0.0
+bcrypt>=4.0.0         # vérif des mots de passe AubeMail (SSO écosystème)
 
 # Optionnels (features avancées)
 redis>=5.0.0          # cache (fallback mémoire si absent)
