@@ -20,9 +20,9 @@ html[data-theme="light"] {
   --text-dim: #555555;
   --text-muted: #888888;
   --border: #e0e0e0;
-  --accent: #c4973a;
-  --accent-hover: #b6862a;
-  --accent-dark: #8a6519;
+  --accent: #5e7da2;
+  --accent-hover: #4e6b8e;
+  --accent-dark: #3c5572;
   --primary: #3a5f9e;
   --danger: #d63131;
 }
@@ -42,8 +42,8 @@ html[data-theme="auto"] {
     --text-dim: #555555;
     --text-muted: #888888;
     --border: #e0e0e0;
-    --accent: #c4973a;
-    --accent-hover: #b6862a;
+    --accent: #5e7da2;
+    --accent-hover: #4e6b8e;
     --primary: #3a5f9e;
     --danger: #d63131;
   }

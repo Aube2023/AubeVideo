@@ -12,9 +12,9 @@
   --text-dim: #aaa;
   --text-muted: #717171;
   --border: #272727;
-  --accent: #e8b84a;      /* or aurore */
-  --accent-hover: #f3c662;
-  --accent-dark: #c4973a;
+  --accent: #6f8fb3;      /* bleu acier doux (moins voyant que l'or) */
+  --accent-hover: #88a4c4;
+  --accent-dark: #56708f;
   --primary: #3a5f9e;     /* bleu nuit */
   --danger: #e54444;
   --radius: 12px;
@@ -53,19 +53,27 @@ textarea { resize: vertical; }
 .brand-accent { color: var(--accent); }
 
 .search-bar {
-  flex: 1; max-width: 640px; display: flex; align-items: stretch;
-  border: 1px solid var(--border); border-radius: 40px; overflow: hidden;
-  background: var(--bg-elev); transition: border-color .15s;
+  flex: 1; max-width: 640px; height: 42px; display: flex; align-items: stretch;
+  border: 1px solid var(--border); border-radius: 22px; overflow: hidden;
+  background: var(--bg-elev);
+  transition: border-color .15s, box-shadow .18s, background .15s;
 }
-.search-bar:focus-within { border-color: var(--accent); }
+.search-bar:focus-within {
+  border-color: var(--accent);
+  background: var(--bg);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 24%, transparent);
+}
 .search-bar input {
   flex: 1; background: transparent; border: 0; padding: 0 18px; color: var(--text); font-size: 15px;
 }
+.search-bar input::placeholder { color: var(--text-muted); }
 .search-bar button {
-  width: 64px; background: #222; display: grid; place-items: center; border-left: 1px solid var(--border);
-  color: var(--text); transition: background .15s;
+  width: 60px; background: var(--bg-hover); display: grid; place-items: center;
+  border-left: 1px solid var(--border);
+  color: var(--text-dim); transition: background .15s, color .15s;
 }
-.search-bar button:hover { background: var(--bg-hover); }
+.search-bar:focus-within button { color: var(--text); }
+.search-bar button:hover { background: var(--border); color: var(--text); }
 
 .topbar-right { display: flex; align-items: center; gap: 8px; margin-left: auto; }
 .btn-upload, .btn-login {

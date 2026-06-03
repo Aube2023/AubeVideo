@@ -1,5 +1,5 @@
 /* AubeVideo - Service Worker (cache assets, JAMAIS le HTML connecté) */
-const CACHE = 'aubevideo-v3';
+const CACHE = 'aubevideo-v4';
 const CORE = [
   '/static/css/style.css', '/static/css/v3.css',
   '/static/js/app.js', '/static/js/v3.js',
