@@ -1,11 +1,12 @@
 {% extends "base.html" %}
 {% block title %}Shorts — AubeVideo{% endblock %}
 {% block content %}
+{% if videos %}
 <div class="shorts-feed" id="shortsFeed">
   {% for v in videos %}
     <div class="short-slide" data-id="{{ v.id }}">
       <video loop playsinline muted preload="metadata" poster="{{ url_for('thumbnail', video_id=v.id) }}">
-        <source src="{{ url_for('stream', video_id=v.id) }}" type="{{ v.mime_type }}">
+        <source src="{{ url_for('stream', video_id=v.id) }}" type="{% if v.qualities %}video/mp4{% else %}{{ v.mime_type }}{% endif %}">
       </video>
       <div class="short-overlay">
         <div class="short-actions">
@@ -26,8 +27,16 @@
       </div>
     </div>
   {% endfor %}
-  {% if not videos %}<div class="empty-state"><h3>Aucun Short pour le moment.</h3></div>{% endif %}
 </div>
+{% else %}
+<div class="container-narrow">
+  <div class="empty-state" style="text-align:center;padding:80px 20px">
+    <h3>Aucun Short pour le moment</h3>
+    <p>Les vidéos verticales de moins de 60 secondes apparaissent automatiquement ici.</p>
+    {% if current_user %}<a href="{{ url_for('upload') }}" class="btn btn-primary">Mettre en ligne une vidéo</a>{% endif %}
+  </div>
+</div>
+{% endif %}
 
 <script>
 const slides = document.querySelectorAll('.short-slide');
