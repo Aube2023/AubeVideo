@@ -749,15 +749,24 @@ def stream(video_id):
         if not session.get("user_id") or session["user_id"] != v["user_id"]:
             abort(403)
 
-    # Sélection de qualité (?q=720p)
+    # Sélection de qualité (?q=720p). En "auto"/absence de q, on préfère une
+    # version transcodée MP4 (lecture navigateur garantie) plutôt que l'original
+    # qui peut être un conteneur non lisible (.mov/quicktime, .mkv, .avi…).
     q = (request.args.get("q") or "").strip()
     available = [x for x in (v["qualities"] or "").split(",") if x]
+    base = Path(v["filename"]).stem
     filename = v["filename"]
     if q and q in available:
-        base = Path(v["filename"]).stem
         candidate = user_dir(v["user_id"]) / "videos" / f"{base}_{q}.mp4"
         if candidate.exists():
             filename = candidate.name
+    elif not q:
+        for cand_q in ("720p", "480p", "360p"):
+            if cand_q in available:
+                candidate = user_dir(v["user_id"]) / "videos" / f"{base}_{cand_q}.mp4"
+                if candidate.exists():
+                    filename = candidate.name
+                    break
 
     path = user_dir(v["user_id"]) / "videos" / filename
     if not path.exists():
@@ -765,7 +774,13 @@ def stream(video_id):
 
     size = path.stat().st_size
     range_header = request.headers.get("Range")
-    mime = v["mime_type"] or "video/mp4"
+    # Type MIME d'après l'extension RÉELLEMENT servie (un .mp4 transcodé doit être
+    # renvoyé en video/mp4, pas avec le video/quicktime de l'original).
+    ext = path.suffix.lower().lstrip(".")
+    mime = {"mp4": "video/mp4", "m4v": "video/mp4", "webm": "video/webm",
+            "ogv": "video/ogg", "mov": "video/quicktime",
+            "mkv": "video/x-matroska", "avi": "video/x-msvideo"}.get(
+        ext, v["mime_type"] or "video/mp4")
 
     if range_header:
         m = re.match(r"bytes=(\d+)-(\d*)", range_header)

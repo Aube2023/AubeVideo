@@ -12,7 +12,7 @@
     <div class="player-wrap" id="playerWrap">
       <video id="player" controls autoplay playsinline preload="metadata"
              poster="{{ url_for('thumbnail', video_id=video.id) }}" crossorigin="anonymous">
-        <source id="playerSource" src="{{ url_for('stream', video_id=video.id) }}" type="{{ video.mime_type }}">
+        <source id="playerSource" src="{{ url_for('stream', video_id=video.id) }}" type="{% if video.qualities %}video/mp4{% else %}{{ video.mime_type }}{% endif %}">
         {% for cap in captions %}
           <track kind="subtitles" src="{{ url_for('caption_file', caption_id=cap.id) }}" srclang="{{ cap.lang }}" label="{{ cap.label }}{% if cap.is_auto %} (auto){% endif %}">
         {% endfor %}
