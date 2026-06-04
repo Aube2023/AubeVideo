@@ -1,5 +1,9 @@
-/* AubeVideo - Service Worker (cache assets, JAMAIS le HTML connecté) */
-const CACHE = 'aubevideo-v4';
+/* AubeVideo - Service Worker.
+   Ne touche JAMAIS aux pages HTML (navigations gérées nativement par le
+   navigateur => toujours à jour, redirections login/logout OK). Ne met en
+   cache que les assets statiques, avec un fallback qui renvoie toujours une
+   Response valide (jamais `undefined`). */
+const CACHE = 'aubevideo-v5';
 const CORE = [
   '/static/css/style.css', '/static/css/v3.css',
   '/static/js/app.js', '/static/js/v3.js',
@@ -8,7 +12,7 @@ const CORE = [
 ];
 
 self.addEventListener('install', (e) => {
-  e.waitUntil(caches.open(CACHE).then(c => c.addAll(CORE).catch(()=>{})));
+  e.waitUntil(caches.open(CACHE).then(c => c.addAll(CORE).catch(() => {})));
   self.skipWaiting();
 });
 
@@ -23,51 +27,43 @@ self.addEventListener('activate', (e) => {
 self.addEventListener('fetch', (e) => {
   const req = e.request;
   if (req.method !== 'GET') return;
+
+  // Navigations (pages HTML) : laisser le navigateur faire. Pas de cache HTML
+  // => l'état connecté est toujours frais, et les redirections fonctionnent.
+  if (req.mode === 'navigate') return;
+
   const url = new URL(req.url);
   if (url.origin !== location.origin) return;
 
-  // Jamais de cache : streaming, API, sous-titres, auth, contenu dynamique
+  // Seuls les assets statiques sont mis en cache (stale-while-revalidate).
   const p = url.pathname;
-  if (p.startsWith('/stream/') || p.startsWith('/api/') || p.startsWith('/caption/') ||
-      p.startsWith('/logout') || p.startsWith('/login') || p.startsWith('/register') ||
-      p.startsWith('/settings') || p.startsWith('/admin') || p.startsWith('/studio')) {
-    return;
-  }
+  if (!(p.startsWith('/static/') || p === '/manifest.webmanifest')) return;
 
-  // Pages HTML / navigation : NETWORK-FIRST.
-  // => l'état connecté/déconnecté est toujours à jour (corrige « toujours connexion »).
-  const isNav = req.mode === 'navigate' ||
-                (req.headers.get('accept') || '').includes('text/html');
-  if (isNav) {
-    e.respondWith(fetch(req).catch(() => caches.match(req)));
-    return;
-  }
-
-  // Assets statiques (css/js/img) : stale-while-revalidate.
-  e.respondWith(
-    caches.match(req).then(hit => {
-      const net = fetch(req).then(resp => {
-        if (resp.ok) {
-          const clone = resp.clone();
-          caches.open(CACHE).then(c => c.put(req, clone));
-        }
-        return resp;
-      }).catch(() => hit);
-      return hit || net;
-    })
-  );
+  e.respondWith((async () => {
+    const cache = await caches.open(CACHE);
+    const hit = await cache.match(req);
+    const fetched = fetch(req).then(resp => {
+      if (resp && resp.ok) cache.put(req, resp.clone());
+      return resp;
+    });
+    if (hit) {
+      fetched.catch(() => {});   // revalidation en arrière-plan, erreurs ignorées
+      return hit;                // sert le cache immédiatement
+    }
+    return fetched;              // pas de cache : attend le réseau (Response ou erreur réseau)
+  })());
 });
 
 self.addEventListener('push', (e) => {
   let data = {};
-  try { data = e.data ? e.data.json() : {}; } catch(err) {}
+  try { data = e.data ? e.data.json() : {}; } catch (err) {}
   const title = data.title || 'AubeVideo';
   e.waitUntil(
     self.registration.showNotification(title, {
       body: data.body || '',
       icon: '/static/img/logo.svg',
       badge: '/static/img/logo.svg',
-      data: {url: data.url || '/'},
+      data: { url: data.url || '/' },
     })
   );
 });
