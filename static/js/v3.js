@@ -214,7 +214,7 @@
       const t = document.createElement('button');
       t.id = 'qToggle'; t.className = 'chip-btn';
       t.style.cssText = 'position:absolute;bottom:60px;right:60px;z-index:5;background:rgba(0,0,0,.7);color:#fff;padding:4px 10px';
-      t.textContent = '⚙ Qualité';
+      t.textContent = 'Qualité';
       t.addEventListener('click', () => qs.classList.toggle('open'));
       wrap.style.position = 'relative';
       wrap.appendChild(t);

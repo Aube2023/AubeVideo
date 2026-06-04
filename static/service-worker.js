@@ -3,7 +3,7 @@
    navigateur => toujours à jour, redirections login/logout OK). Ne met en
    cache que les assets statiques, avec un fallback qui renvoie toujours une
    Response valide (jamais `undefined`). */
-const CACHE = 'aubevideo-v5';
+const CACHE = 'aubevideo-v6';
 const CORE = [
   '/static/css/style.css', '/static/css/v3.css',
   '/static/js/app.js', '/static/js/v3.js',
