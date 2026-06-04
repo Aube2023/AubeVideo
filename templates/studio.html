@@ -26,8 +26,8 @@
 
 <div class="studio-actions">
   <a href="{{ url_for('upload') }}" class="btn btn-primary">+ Nouvelle vidéo</a>
-  <a href="{{ url_for('studio_analytics') }}" class="btn-ghost">📊 Analytics</a>
-  <a href="{{ url_for('live_dashboard') }}" class="btn-ghost">🔴 Live</a>
+  <a href="{{ url_for('studio_analytics') }}" class="btn-ghost">Analytics</a>
+  <a href="{{ url_for('live_dashboard') }}" class="btn-ghost">Live</a>
 </div>
 
 {% if videos %}
@@ -57,9 +57,9 @@
           </td>
           <td>
             <span class="visibility-pill vis-{{ v.visibility }}">
-              {% if v.visibility == 'public' %}🌍 Publique
-              {% elif v.visibility == 'unlisted' %}🔗 Non répertoriée
-              {% else %}🔒 Privée{% endif %}
+              {% if v.visibility == 'public' %}Publique
+              {% elif v.visibility == 'unlisted' %}Non répertoriée
+              {% else %}Privée{% endif %}
             </span>
           </td>
           <td>{{ v.created_at|timeago }}</td>

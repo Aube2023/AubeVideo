@@ -5,7 +5,7 @@
 <div class="chips">
   <a href="{{ url_for('home') }}" class="chip {% if active_category=='Toutes' %}active{% endif %}">Toutes</a>
   {% if current_user %}
-    <a href="#" class="chip featured" onclick="document.getElementById('section-foryou')?.scrollIntoView({behavior:'smooth'}); return false;">✨ Pour vous</a>
+    <a href="#" class="chip featured" onclick="document.getElementById('section-foryou')?.scrollIntoView({behavior:'smooth'}); return false;">Pour vous</a>
   {% endif %}
   {% for cat in CATEGORIES %}
     <a href="{{ url_for('home', c=cat) }}" class="chip {% if active_category==cat %}active{% endif %}">{{ cat }}</a>

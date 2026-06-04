@@ -2,7 +2,7 @@
 {% block title %}{{ playlist.title }} — AubeVideo{% endblock %}
 {% block content %}
 <div class="playlist-header">
-  <div class="pl-thumb-lg">📋</div>
+  <div class="pl-thumb-lg"><svg viewBox="0 0 24 24" width="46" height="46"><path fill="currentColor" d="M4 10h12v2H4zm0-4h12v2H4zm0 8h8v2H4zm10 0v6l5-3z"/></svg></div>
   <div>
     <h1>{{ playlist.title }}</h1>
     <div class="card-stats">
@@ -10,7 +10,7 @@
       • {{ videos|length }} vidéo{{ 's' if videos|length != 1 else '' }} • {{ playlist.visibility }}
     </div>
     {% if videos %}
-      <a href="{{ url_for('watch', video_id=videos[0].id) }}" class="btn btn-primary">▶ Tout lire</a>
+      <a href="{{ url_for('watch', video_id=videos[0].id) }}" class="btn btn-primary">Tout lire</a>
     {% endif %}
   </div>
 </div>

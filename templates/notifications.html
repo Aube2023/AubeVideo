@@ -8,10 +8,7 @@
       {% for n in items %}
         <a href="{{ n.link or '#' }}" class="notif-page-item {% if not n.is_read %}unread{% endif %}">
           <div class="notif-icon">
-            {% if n.type == 'new_video' %}🎬
-            {% elif n.type == 'new_sub' %}🔔
-            {% elif n.type == 'new_comment' %}💬
-            {% else %}🔔{% endif %}
+            {% if n.type == 'new_video' %}            {% elif n.type == 'new_sub' %}            {% elif n.type == 'new_comment' %}            {% else %}{% endif %}
           </div>
           <div class="notif-body">
             <strong>{{ n.title }}</strong>

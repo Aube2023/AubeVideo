@@ -3,7 +3,7 @@
 {% block content %}
 <div class="auth-card">
   <img src="{{ url_for('static', filename='img/logo.svg') }}" alt="" class="auth-logo">
-  <h1>🔐 Code 2FA</h1>
+  <h1>Code 2FA</h1>
   <p class="auth-sub">Entrez le code à 6 chiffres affiché dans votre application d'authentification.</p>
   <form method="post" class="auth-form">
     <input type="hidden" name="_csrf" value="{{ csrf_token() }}">

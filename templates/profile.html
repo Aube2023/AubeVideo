@@ -23,10 +23,10 @@
           <button id="subBtn" class="btn-subscribe {% if is_subscribed %}subscribed{% endif %}" data-channel="{{ user.id }}">
             {{ "Abonné" if is_subscribed else "S'abonner" }}
           </button>
-          <button class="btn-ghost" onclick="openReport('user', {{ user.id }})">⚐ Signaler</button>
+          <button class="btn-ghost" onclick="openReport('user', {{ user.id }})">Signaler</button>
         {% elif current_user and current_user.id == user.id %}
-          <a href="{{ url_for('settings') }}" class="btn-ghost">✏️ Personnaliser</a>
-          <a href="{{ url_for('studio') }}" class="btn-ghost">🎬 Studio</a>
+          <a href="{{ url_for('settings') }}" class="btn-ghost">Personnaliser</a>
+          <a href="{{ url_for('studio') }}" class="btn-ghost">Studio</a>
         {% endif %}
       </div>
     </div>
@@ -69,7 +69,7 @@
     <div class="video-grid">
       {% for p in playlists %}
         <a href="{{ url_for('playlist_view', playlist_id=p.id) }}" class="playlist-card">
-          <div class="pl-thumb">📋</div>
+          <div class="pl-thumb"><svg viewBox="0 0 24 24" width="46" height="46"><path fill="currentColor" d="M4 10h12v2H4zm0-4h12v2H4zm0 8h8v2H4zm10 0v6l5-3z"/></svg></div>
           <div class="pl-title">{{ p.title }}</div>
           <div class="pl-count">{{ p.video_count }} vidéo{{ 's' if p.video_count != 1 else '' }}</div>
         </a>

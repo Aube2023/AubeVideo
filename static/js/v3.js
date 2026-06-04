@@ -93,13 +93,13 @@
       if (e.key === ' ' || e.key === 'k') {
         e.preventDefault();
         if (player.paused) player.play(); else player.pause();
-        flashPlayerIcon(player.paused ? '▶' : '⏸');
+        flashPlayerIcon(player.paused ? 'Lecture' : 'Pause');
       } else if (e.key === 'j') {
         player.currentTime = Math.max(0, player.currentTime - 10);
-        flashPlayerIcon('⏪ 10s');
+        flashPlayerIcon('−10s');
       } else if (e.key === 'l') {
         player.currentTime = Math.min(player.duration || 0, player.currentTime + 10);
-        flashPlayerIcon('⏩ 10s');
+        flashPlayerIcon('+10s');
       } else if (e.key === 'ArrowLeft') {
         player.currentTime = Math.max(0, player.currentTime - 5);
       } else if (e.key === 'ArrowRight') {
@@ -112,7 +112,7 @@
         player.volume = Math.max(0, player.volume - 0.05);
       } else if (e.key === 'm') {
         player.muted = !player.muted;
-        flashPlayerIcon(player.muted ? '🔇' : '🔊');
+        flashPlayerIcon(player.muted ? 'Muet' : 'Son');
       } else if (e.key === 't') {
         toggleTheater();
       } else if (e.key === 'f') {

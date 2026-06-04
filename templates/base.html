@@ -91,16 +91,16 @@
             </div>
           </div>
           <hr>
-          <a href="{{ url_for('studio') }}">🎬 Studio AubeVideo</a>
-          <a href="{{ url_for('playlists_page') }}">📋 Mes playlists</a>
-          <a href="{{ url_for('watch_later_page') }}">⏱️ À regarder plus tard</a>
-          <a href="{{ url_for('history') }}">🕒 Historique</a>
-          <a href="{{ url_for('settings') }}">⚙️ Paramètres</a>
-          {% if is_admin %}<hr><a href="{{ url_for('admin_home') }}">🛡️ Administration</a>{% endif %}
+          <a href="{{ url_for('studio') }}">Studio AubeVideo</a>
+          <a href="{{ url_for('playlists_page') }}">Mes playlists</a>
+          <a href="{{ url_for('watch_later_page') }}">À regarder plus tard</a>
+          <a href="{{ url_for('history') }}">Historique</a>
+          <a href="{{ url_for('settings') }}">Paramètres</a>
+          {% if is_admin %}<hr><a href="{{ url_for('admin_home') }}">Administration</a>{% endif %}
           <hr>
           <form method="post" action="{{ url_for('logout') }}" style="padding:0">
             <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
-            <button type="submit" class="logout-btn">🚪 Déconnexion</button>
+            <button type="submit" class="logout-btn">Déconnexion</button>
           </form>
         </div>
       </div>
@@ -178,17 +178,6 @@
       </a>
     {% endfor %}
   </nav>
-
-  <hr>
-
-  <div class="ecosystem">
-    <div class="nav-heading">L'Aube Étoilée</div>
-    <a href="https://aubeetoilee.com" target="_blank" rel="noopener">🌅 Accueil</a>
-    <a href="https://docs.aubeetoilee.com" target="_blank" rel="noopener">📝 AubeDocs</a>
-    <a href="https://drive.aubeetoilee.com" target="_blank" rel="noopener">📁 AubeDrive</a>
-    <a href="https://data.aubeetoilee.com" target="_blank" rel="noopener">📊 AubeData</a>
-    <a href="https://news.aubeetoilee.com" target="_blank" rel="noopener">📰 AubeNews</a>
-  </div>
 </aside>
 
 <main class="main">

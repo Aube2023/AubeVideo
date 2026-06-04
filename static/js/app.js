@@ -232,15 +232,15 @@ if (player) {
         break;
       case 'arrowup':
         player.volume = Math.min(1, player.volume + 0.1);
-        flashOverlay('🔊 ' + Math.round(player.volume * 100) + '%');
+        flashOverlay('Volume ' + Math.round(player.volume * 100) + '%');
         break;
       case 'arrowdown':
         player.volume = Math.max(0, player.volume - 0.1);
-        flashOverlay('🔉 ' + Math.round(player.volume * 100) + '%');
+        flashOverlay('Volume ' + Math.round(player.volume * 100) + '%');
         break;
       case 'm':
         player.muted = !player.muted;
-        flashOverlay(player.muted ? '🔇' : '🔊');
+        flashOverlay(player.muted ? 'Muet' : 'Son');
         break;
       case 'f':
         if (document.fullscreenElement) document.exitFullscreen();
@@ -468,7 +468,7 @@ if (searchInput && searchSuggest) {
         const link = it.kind === 'channel'
           ? `/c/${encodeURIComponent(it.username)}`
           : `/watch/${encodeURIComponent(it.id)}`;
-        const icon = it.kind === 'channel' ? '👤' : '▶';
+        const icon = it.kind === 'channel' ? '<svg viewBox="0 0 24 24" width="16" height="16"><path fill="currentColor" d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/></svg>' : '<svg viewBox="0 0 24 24" width="16" height="16"><path fill="currentColor" d="M8 5v14l11-7z"/></svg>';
         return `<a href="${link}" class="ss-item"><span class="ss-icon">${icon}</span><span>${escapeHtml(it.text)}</span></a>`;
       }).join('');
       searchSuggest.classList.add('open');
@@ -518,7 +518,7 @@ const qs = document.getElementById('qualitySelector');
 if (qs && window.AUBE_VIDEO_QUALITIES) {
   const quals = window.AUBE_VIDEO_QUALITIES.split(',').filter(Boolean);
   if (quals.length) {
-    qs.innerHTML = '<button class="q-btn">Auto ⚙</button><div class="q-menu">' +
+    qs.innerHTML = '<button class="q-btn">Auto ▾</button><div class="q-menu">' +
       ['auto', ...quals].map(q => `<button data-q="${q}">${q}</button>`).join('') + '</div>';
     qs.querySelector('.q-btn').addEventListener('click', () => qs.classList.toggle('open'));
     qs.querySelectorAll('.q-menu button').forEach(b => {
@@ -534,7 +534,7 @@ if (qs && window.AUBE_VIDEO_QUALITIES) {
           player.currentTime = t;
           if (wasPlaying) player.play().catch(()=>{});
         }, {once: true});
-        qs.querySelector('.q-btn').textContent = q + ' ⚙';
+        qs.querySelector('.q-btn').textContent = q + ' ▾';
         qs.classList.remove('open');
       });
     });
