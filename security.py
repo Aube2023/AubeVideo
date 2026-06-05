@@ -10,10 +10,50 @@ from flask import session, request, abort, jsonify
 
 CSRF_KEY = os.environ.get("AUBEVIDEO_CSRF_KEY", "change-me-csrf-" + secrets.token_hex(16))
 
-# Rate limit en mémoire (suffit pour un seul worker — pour multi-worker utiliser Redis)
+# Rate limit : Redis si disponible (partagé entre workers), sinon mémoire (fallback).
 _rate_store = defaultdict(deque)
-
 _LOGIN_ATTEMPTS = defaultdict(deque)
+
+try:
+    import redis as _redis_lib
+    _REDIS_URL = os.environ.get("REDIS_URL", "").strip()
+    _redis = _redis_lib.from_url(_REDIS_URL) if _REDIS_URL else None
+    if _redis is not None:
+        _redis.ping()
+except Exception:
+    _redis = None
+
+
+def _sliding_window_hit(key, limit, window):
+    """Fenêtre glissante. Renvoie (bloqué: bool, retry_after: int).
+
+    Utilise Redis (ZSET) si dispo pour un comptage partagé entre workers,
+    sinon retombe sur un deque en mémoire (par worker).
+    """
+    now = time.time()
+    if _redis is not None:
+        try:
+            member = f"{now:.6f}-{secrets.token_hex(4)}"
+            p = _redis.pipeline()
+            p.zremrangebyscore(key, 0, now - window)
+            p.zadd(key, {member: now})
+            p.zcard(key)
+            p.expire(key, int(window) + 1)
+            _, _, count, _ = p.execute()
+            if count > limit:
+                oldest = _redis.zrange(key, 0, 0, withscores=True)
+                ra = int(oldest[0][1] + window - now) if oldest else int(window)
+                return True, max(1, ra)
+            return False, 0
+        except Exception:
+            pass  # Redis indisponible -> fallback mémoire
+    q = _rate_store[key]
+    while q and now - q[0] > window:
+        q.popleft()
+    if len(q) >= limit:
+        return True, int(window - (now - q[0]))
+    q.append(now)
+    return False, 0
 
 
 def generate_csrf_token() -> str:
@@ -70,21 +110,17 @@ def rate_limit(limit: int = 60, window: int = 60, per: str = "user"):
     def deco(f):
         @wraps(f)
         def wrapped(*args, **kwargs):
-            now = time.time()
             if per == "user":
-                key = session.get("user_id") or request.remote_addr or "anon"
+                who = session.get("user_id") or request.remote_addr or "anon"
             else:
-                key = request.remote_addr or "anon"
-            key = f"{f.__name__}:{key}"
-            q = _rate_store[key]
-            while q and now - q[0] > window:
-                q.popleft()
-            if len(q) >= limit:
+                who = request.remote_addr or "anon"
+            key = f"rl:{f.__name__}:{who}"
+            blocked, retry_after = _sliding_window_hit(key, limit, window)
+            if blocked:
                 return jsonify({
                     "error": "trop de requêtes, réessayez plus tard",
-                    "retry_after": int(window - (now - q[0])),
+                    "retry_after": retry_after,
                 }), 429
-            q.append(now)
             return f(*args, **kwargs)
         return wrapped
     return deco
@@ -92,15 +128,9 @@ def rate_limit(limit: int = 60, window: int = 60, per: str = "user"):
 
 def throttle_login(username: str, max_attempts: int = 10, window: int = 300) -> bool:
     """True si on autorise la tentative, False si bloqué."""
-    now = time.time()
     key = f"login:{username}:{request.remote_addr}"
-    q = _LOGIN_ATTEMPTS[key]
-    while q and now - q[0] > window:
-        q.popleft()
-    if len(q) >= max_attempts:
-        return False
-    q.append(now)
-    return True
+    blocked, _ = _sliding_window_hit(key, max_attempts, window)
+    return not blocked
 
 
 def security_headers(app):
