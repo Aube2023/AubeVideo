@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+{% block title %}Conditions d'utilisation — AubeVideo{% endblock %}
+{% block content %}
+<div class="container-narrow legal-page">
+  <h1>Conditions d'utilisation</h1>
+  <p class="legal-date">Dernière mise à jour : juin 2026</p>
+
+  <h2>1. Objet</h2>
+  <p>AubeVideo est une plateforme de partage de vidéos éditée par L'Aube Étoilée.
+  En créant un compte ou en utilisant le service, vous acceptez les présentes conditions.</p>
+
+  <h2>2. Compte</h2>
+  <p>Vous devez fournir des informations exactes lors de l'inscription et avez au moins
+  15 ans (ou l'âge légal du consentement numérique dans votre pays). Vous êtes responsable
+  de la confidentialité de votre mot de passe et de l'activité sur votre compte.</p>
+
+  <h2>3. Contenu publié</h2>
+  <p>Vous conservez vos droits sur les vidéos que vous publiez. En les mettant en ligne,
+  vous accordez à AubeVideo une licence non exclusive d'hébergement et de diffusion
+  nécessaire au fonctionnement du service.</p>
+  <p>Vous garantissez détenir tous les droits sur le contenu publié. Sont notamment interdits :
+  les contenus violant des droits d'auteur ou de marque, illégaux, haineux, violents,
+  pornographiques, ou portant atteinte à la vie privée d'autrui.</p>
+
+  <h2>4. Modération</h2>
+  <p>AubeVideo peut retirer tout contenu signalé ou contraire aux présentes conditions,
+  et suspendre les comptes en infraction. Vous pouvez signaler un contenu via le bouton
+  « Signaler ».</p>
+
+  <h2>5. Droit d'auteur</h2>
+  <p>Si vous estimez qu'un contenu viole vos droits, contactez-nous avec les éléments
+  justificatifs : nous traiterons la demande et retirerons le contenu si nécessaire.</p>
+
+  <h2>6. Responsabilité</h2>
+  <p>Le service est fourni « en l'état ». AubeVideo ne saurait être tenue responsable des
+  contenus publiés par les utilisateurs ni des interruptions de service.</p>
+
+  <h2>7. Modification</h2>
+  <p>Ces conditions peuvent évoluer. Les utilisateurs seront informés des changements
+  importants.</p>
+
+  <p class="legal-links"><a href="{{ url_for('privacy') }}">Politique de confidentialité</a> ·
+  <a href="{{ url_for('legal_notice') }}">Mentions légales</a></p>
+</div>
+{% endblock %}

@@ -1,0 +1,49 @@
+{% extends "base.html" %}
+{% block title %}Confidentialité — AubeVideo{% endblock %}
+{% block content %}
+<div class="container-narrow legal-page">
+  <h1>Politique de confidentialité</h1>
+  <p class="legal-date">Dernière mise à jour : juin 2026</p>
+
+  <p>Cette politique explique quelles données personnelles AubeVideo (L'Aube Étoilée)
+  collecte et comment elles sont utilisées, conformément au RGPD.</p>
+
+  <h2>1. Données collectées</h2>
+  <ul>
+    <li><strong>Compte</strong> : nom d'utilisateur, e-mail, mot de passe (haché, jamais en clair).</li>
+    <li><strong>Contenu</strong> : vidéos, descriptions, commentaires, playlists que vous publiez.</li>
+    <li><strong>Usage</strong> : historique de visionnage, abonnements, vues (pour le service).</li>
+    <li><strong>Technique</strong> : adresse IP et journaux serveur (sécurité, anti-abus).</li>
+  </ul>
+
+  <h2>2. Finalités</h2>
+  <p>Fournir le service (lecture, recommandations, notifications), sécuriser les comptes,
+  prévenir les abus, et respecter nos obligations légales.</p>
+
+  <h2>3. Base légale</h2>
+  <p>Exécution du contrat (fourniture du service), intérêt légitime (sécurité), et
+  consentement (cookies non essentiels, le cas échéant).</p>
+
+  <h2>4. Cookies</h2>
+  <p>Nous utilisons uniquement des cookies <strong>essentiels</strong> : session de
+  connexion, jeton anti-CSRF, et préférence de thème. Aucun cookie publicitaire ni
+  traceur tiers.</p>
+
+  <h2>5. Conservation</h2>
+  <p>Vos données sont conservées tant que votre compte est actif. À la suppression du
+  compte, vos données personnelles sont effacées (sauf obligation légale de conservation).</p>
+
+  <h2>6. Vos droits</h2>
+  <p>Vous disposez d'un droit d'accès, de rectification, d'effacement, de portabilité et
+  d'opposition. Vous pouvez <strong>exporter vos données</strong> depuis vos paramètres,
+  ou nous contacter pour exercer vos droits.</p>
+
+  <h2>7. Partage</h2>
+  <p>Nous ne vendons pas vos données. Elles peuvent être transmises à des prestataires
+  techniques strictement nécessaires (hébergement, paiement) ou aux autorités si la loi
+  l'exige.</p>
+
+  <p class="legal-links"><a href="{{ url_for('terms') }}">Conditions d'utilisation</a> ·
+  <a href="{{ url_for('legal_notice') }}">Mentions légales</a></p>
+</div>
+{% endblock %}

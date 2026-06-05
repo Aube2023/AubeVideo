@@ -446,6 +446,22 @@ def resend_verification():
     return redirect(request.referrer or url_for("home"))
 
 
+# ---------- Pages légales (RGPD) ----------
+@app.route("/conditions")
+def terms():
+    return render_template("conditions.html")
+
+
+@app.route("/confidentialite")
+def privacy():
+    return render_template("confidentialite.html")
+
+
+@app.route("/mentions-legales")
+def legal_notice():
+    return render_template("mentions_legales.html")
+
+
 @app.route("/login/2fa", methods=["GET", "POST"])
 def login_2fa():
     uid = session.get("_pending_uid")

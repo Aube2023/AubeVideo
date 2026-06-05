@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% block title %}Mentions légales — AubeVideo{% endblock %}
+{% block content %}
+<div class="container-narrow legal-page">
+  <h1>Mentions légales</h1>
+  <p class="legal-date">Dernière mise à jour : juin 2026</p>
+
+  <h2>Éditeur</h2>
+  <p>AubeVideo est édité par <strong>L'Aube Étoilée</strong>.<br>
+  Contact : <a href="mailto:contact@aubeetoilee.com">contact@aubeetoilee.com</a></p>
+  <p class="legal-note">À compléter : raison sociale, forme juridique, adresse du siège,
+  numéro d'immatriculation (SIREN/RCS), nom du directeur de la publication.</p>
+
+  <h2>Hébergement</h2>
+  <p>Le service est hébergé sur un serveur dédié de L'Aube Étoilée.</p>
+  <p class="legal-note">À compléter : nom et adresse de l'hébergeur si différent.</p>
+
+  <h2>Propriété intellectuelle</h2>
+  <p>La marque, le logo et l'interface d'AubeVideo sont la propriété de L'Aube Étoilée.
+  Les vidéos restent la propriété de leurs auteurs.</p>
+
+  <h2>Signalement</h2>
+  <p>Pour signaler un contenu illicite ou une atteinte à vos droits, utilisez le bouton
+  « Signaler » ou écrivez à <a href="mailto:contact@aubeetoilee.com">contact@aubeetoilee.com</a>.</p>
+
+  <p class="legal-links"><a href="{{ url_for('terms') }}">Conditions d'utilisation</a> ·
+  <a href="{{ url_for('privacy') }}">Politique de confidentialité</a></p>
+</div>
+{% endblock %}

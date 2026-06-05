@@ -178,6 +178,13 @@
       </a>
     {% endfor %}
   </nav>
+
+  <div class="sidebar-foot">
+    <a href="{{ url_for('terms') }}">Conditions</a>
+    <a href="{{ url_for('privacy') }}">Confidentialité</a>
+    <a href="{{ url_for('legal_notice') }}">Mentions légales</a>
+    <div class="copy">© 2026 AubeVideo</div>
+  </div>
 </aside>
 
 <main class="main">
@@ -203,6 +210,27 @@
 </main>
 
 <div id="modalRoot"></div>
+
+<div id="cookieBanner" class="cookie-banner" hidden>
+  <span>AubeVideo utilise uniquement des cookies essentiels (connexion, préférences). <a href="{{ url_for('privacy') }}">En savoir plus</a>.</span>
+  <button id="cookieAccept">J'ai compris</button>
+</div>
+<script>
+(function(){
+  try {
+    if (!localStorage.getItem('aube-cookie-consent')) {
+      var b = document.getElementById('cookieBanner');
+      if (b) {
+        b.hidden = false;
+        document.getElementById('cookieAccept').addEventListener('click', function(){
+          try { localStorage.setItem('aube-cookie-consent','1'); } catch(_){}
+          b.hidden = true;
+        });
+      }
+    }
+  } catch(_){}
+})();
+</script>
 
 <script src="{{ url_for('static', filename='js/app.js') }}"></script>
 <script src="{{ url_for('static', filename='js/v3.js') }}"></script>
