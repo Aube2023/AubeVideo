@@ -302,3 +302,13 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_users_email_lower ON users (LOWER(email)) 
 
 -- v5 : vérification d'e-mail
 ALTER TABLE users ADD COLUMN IF NOT EXISTS email_verified BOOLEAN DEFAULT FALSE;
+
+-- v6 : recherche full-text (colonne tsvector générée + index GIN).
+-- Pondération : titre (A) > tags (B) > description (C).
+ALTER TABLE videos ADD COLUMN IF NOT EXISTS search_vector tsvector
+  GENERATED ALWAYS AS (
+    setweight(to_tsvector('french', coalesce(title, '')), 'A') ||
+    setweight(to_tsvector('french', coalesce(tags, '')), 'B') ||
+    setweight(to_tsvector('french', coalesce(description, '')), 'C')
+  ) STORED;
+CREATE INDEX IF NOT EXISTS idx_videos_search ON videos USING GIN (search_vector);

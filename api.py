@@ -403,18 +403,24 @@ def search():
     if not q:
         return jsonify({"videos": [], "channels": []})
     like = f"%{q}%"
-    order = {"date": "v.created_at DESC", "views": "v.views DESC"}.get(sort, "v.views DESC")
+    # Recherche full-text (tsvector + ranking) ; ILIKE pour le nom de chaîne.
+    if sort == "date":
+        order, params = "v.created_at DESC", (q, like, like, per, offset)
+    elif sort == "views":
+        order, params = "v.views DESC", (q, like, like, per, offset)
+    else:  # relevance
+        order = "ts_rank(v.search_vector, websearch_to_tsquery('french', %s)) DESC, v.views DESC"
+        params = (q, like, like, q, per, offset)
+    sql = (
+        "SELECT v.*, u.username, u.display_name, u.avatar_url, u.subscriber_count "
+        "FROM videos v JOIN users u ON v.user_id = u.id "
+        "WHERE v.visibility = 'public' AND v.is_removed = FALSE "
+        "  AND (v.search_vector @@ websearch_to_tsquery('french', %s) "
+        "       OR u.username ILIKE %s OR u.display_name ILIKE %s) "
+        "ORDER BY " + order + " LIMIT %s OFFSET %s"
+    )
     with db_cursor() as cur:
-        cur.execute(
-            f"""SELECT v.*, u.username, u.display_name, u.avatar_url, u.subscriber_count
-                FROM videos v JOIN users u ON v.user_id = u.id
-                WHERE v.visibility = 'public' AND v.is_removed = FALSE
-                  AND (v.title ILIKE %s OR v.description ILIKE %s
-                       OR v.tags ILIKE %s OR u.username ILIKE %s
-                       OR u.display_name ILIKE %s)
-                ORDER BY {order} LIMIT %s OFFSET %s""",
-            (like, like, like, like, like, per, offset),
-        )
+        cur.execute(sql, params)
         videos = cur.fetchall()
         cur.execute(
             """SELECT id, username, display_name, avatar_url, banner_url,
