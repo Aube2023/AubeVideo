@@ -12,7 +12,9 @@
     <div class="player-wrap" id="playerWrap">
       <video id="player" controls autoplay playsinline preload="metadata"
              poster="{{ url_for('thumbnail', video_id=video.id) }}" crossorigin="anonymous">
+        {% if not video.hls_ready %}
         <source id="playerSource" src="{{ url_for('stream', video_id=video.id) }}" type="{% if video.qualities %}video/mp4{% else %}{{ video.mime_type }}{% endif %}">
+        {% endif %}
         {% for cap in captions %}
           <track kind="subtitles" src="{{ url_for('caption_file', caption_id=cap.id) }}" srclang="{{ cap.lang }}" label="{{ cap.label }}{% if cap.is_auto %} (auto){% endif %}">
         {% endfor %}
@@ -192,7 +194,8 @@
 
 <script>
 window.AUBE_VIDEO_ID = {{ video.id }};
-window.AUBE_VIDEO_QUALITIES = "{{ video.qualities or '' }}";
+{# En HLS, la qualité est automatique : on désactive le sélecteur manuel MP4 #}
+window.AUBE_VIDEO_QUALITIES = "{% if not video.hls_ready %}{{ video.qualities or '' }}{% endif %}";
 window.AUBE_VIDEO_OWNER = {{ video.user_id }};
 {% if current_user %}
 window.AUBE_PLAYLISTS = {{ my_playlists|tojson }};
@@ -202,5 +205,29 @@ window.AUBE_PLAYLISTS = [];
 window.AUBE_IS_OWNER = false;
 {% endif %}
 </script>
+
+{% if video.hls_ready %}
+<script src="{{ url_for('static', filename='js/hls.min.js') }}"></script>
+<script>
+(function () {
+  var v = document.getElementById('player');
+  var hlsUrl = "{{ url_for('hls', video_id=video.id, subpath='master.m3u8') }}";
+  var mp4Url = "{{ url_for('stream', video_id=video.id) }}";
+  if (!v) return;
+  if (v.canPlayType('application/vnd.apple.mpegurl')) {
+    v.src = hlsUrl;                       // Safari : HLS natif
+  } else if (window.Hls && window.Hls.isSupported()) {
+    var hls = new Hls({ capLevelToPlayerSize: true });
+    hls.loadSource(hlsUrl);
+    hls.attachMedia(v);
+    hls.on(Hls.Events.ERROR, function (e, data) {
+      if (data && data.fatal) { v.src = mp4Url; }   // repli MP4 si HLS casse
+    });
+  } else {
+    v.src = mp4Url;                       // très vieux navigateur : MP4
+  }
+})();
+</script>
+{% endif %}
 
 {% endblock %}

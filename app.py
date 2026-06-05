@@ -955,6 +955,31 @@ def stream(video_id):
     return send_from_directory(path.parent, path.name, mimetype=mime, conditional=True)
 
 
+@app.route("/hls/<int:video_id>/<path:subpath>")
+def hls(video_id, subpath):
+    """Sert les fichiers HLS (master/variantes .m3u8 + segments .ts)."""
+    with db_cursor() as cur:
+        cur.execute(
+            "SELECT user_id, filename, visibility, is_removed FROM videos WHERE id = %s",
+            (video_id,),
+        )
+        v = cur.fetchone()
+    if not v or v["is_removed"]:
+        abort(404)
+    if v["visibility"] == "private":
+        if not session.get("user_id") or session["user_id"] != v["user_id"]:
+            abort(403)
+    base = (user_dir(v["user_id"]) / "hls" / Path(v["filename"]).stem).resolve()
+    target = (base / subpath).resolve()
+    if os.path.commonpath([str(base), str(target)]) != str(base):
+        abort(403)  # anti path-traversal
+    if not target.is_file():
+        abort(404)
+    mime = ("application/vnd.apple.mpegurl" if target.suffix == ".m3u8"
+            else "video/mp2t" if target.suffix == ".ts" else None)
+    return send_from_directory(target.parent, target.name, mimetype=mime, conditional=True)
+
+
 # ---------- Thumbnails / avatars / banners ----------
 @app.route("/thumb/<int:video_id>")
 def thumbnail(video_id):

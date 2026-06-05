@@ -312,3 +312,6 @@ ALTER TABLE videos ADD COLUMN IF NOT EXISTS search_vector tsvector
     setweight(to_tsvector('french', coalesce(description, '')), 'C')
   ) STORED;
 CREATE INDEX IF NOT EXISTS idx_videos_search ON videos USING GIN (search_vector);
+
+-- v7 : streaming adaptatif HLS (master.m3u8 généré au transcodage)
+ALTER TABLE videos ADD COLUMN IF NOT EXISTS hls_ready BOOLEAN DEFAULT FALSE;

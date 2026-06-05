@@ -8,7 +8,8 @@ Werkzeug>=3.0.0
 bcrypt>=4.0.0         # vérif des mots de passe AubeMail (SSO écosystème)
 
 # Optionnels (features avancées)
-redis>=5.0.0          # cache (fallback mémoire si absent)
+redis>=5.0.0          # cache + rate-limit + file de transcodage
+rq>=1.16.0            # file de transcodage (worker supervisé)
 pywebpush>=2.0.0      # web push VAPID (silencieux si absent)
 stripe>=7.0.0         # tip jar (désactivé si absent)
 pytest>=8.0.0         # tests
