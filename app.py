@@ -37,7 +37,10 @@ from auth import (
     pam_authenticate, login_required, admin_required,
     is_admin, current_user,
     register_user, authenticate_local, authenticate_aubemail, normalize_username,
+    get_user_by_email, mark_email_verified, set_password,
 )
+import mailer
+from itsdangerous import URLSafeTimedSerializer, BadSignature, SignatureExpired
 from security import (
     csrf_protect, security_headers, configure_session,
     rate_limit, throttle_login,
@@ -94,6 +97,38 @@ app = Flask(__name__)
 app.secret_key = _load_secret_key()
 app.config["MAX_CONTENT_LENGTH"] = MAX_VIDEO_SIZE
 app.jinja_env.autoescape = True
+
+# Tokens signés et expirables (reset mot de passe, vérification e-mail)
+_token_serializer = URLSafeTimedSerializer(app.secret_key, salt="aubevideo-tokens")
+
+
+def make_token(purpose, data):
+    return _token_serializer.dumps({"p": purpose, "d": data})
+
+
+def verify_token(purpose, token, max_age=3600):
+    try:
+        payload = _token_serializer.loads(token, max_age=max_age)
+    except (BadSignature, SignatureExpired, Exception):
+        return None
+    if not isinstance(payload, dict) or payload.get("p") != purpose:
+        return None
+    return payload.get("d")
+
+
+def _send_verification_email(uid, username, email):
+    """Envoie le lien de vérification d'e-mail (non bloquant)."""
+    if not email:
+        return
+    token = make_token("verify", uid)
+    url = url_for("verify_email", token=token, _external=True)
+    html = mailer.render_email(
+        "Confirmez votre adresse e-mail",
+        f"Bonjour {username}, bienvenue sur AubeVideo ! Cliquez ci-dessous pour "
+        "confirmer votre adresse e-mail.",
+        "Confirmer mon e-mail", url,
+        "Si vous n'êtes pas à l'origine de cette inscription, ignorez cet e-mail.")
+    mailer.send_email(email, "Confirmez votre e-mail — AubeVideo", html)
 
 # Derrière un proxy (nginx) : respecter X-Forwarded-For / X-Forwarded-Proto
 if os.environ.get("AUBEVIDEO_BEHIND_PROXY", "0") == "1":
@@ -207,6 +242,13 @@ def _complete_login(uid, username):
     session["user_id"] = uid
     session["username"] = username
     session["display_name"] = username
+    try:
+        with db_cursor() as cur:
+            cur.execute("SELECT email_verified FROM users WHERE id = %s", (uid,))
+            r = cur.fetchone()
+        session["email_verified"] = bool(r and r["email_verified"])
+    except Exception:
+        session["email_verified"] = True  # ne pas bloquer si indisponible
 
 
 def _safe_next(default_endpoint="home"):
@@ -222,7 +264,8 @@ def inject_globals():
     if not uid or request.endpoint in ("stream", "thumbnail", "avatar", "banner",
                                         "static", "health"):
         return {"current_user": current_user(), "is_admin": False,
-                "unread_notifs": 0, "CATEGORIES": CATEGORIES}
+                "unread_notifs": 0, "CATEGORIES": CATEGORIES,
+                "email_verified": True}
     n_unread = 0
     try:
         n_unread = notify.unread_count(uid)
@@ -233,6 +276,7 @@ def inject_globals():
         "is_admin": is_admin(uid),
         "unread_notifs": n_unread,
         "CATEGORIES": CATEGORIES,
+        "email_verified": session.get("email_verified", True),
     }
 
 
@@ -314,10 +358,92 @@ def register():
             return render_template("register.html", form=request.form)
 
         _complete_login(uid, username)
+        try:
+            _send_verification_email(uid, username, email)
+        except Exception:
+            app.logger.exception("Envoi e-mail de vérification échoué")
         app.logger.info("Inscription de %s", username)
-        flash("Bienvenue sur AubeVideo ! Votre compte est créé.", "success")
+        flash("Bienvenue sur AubeVideo ! Vérifiez votre e-mail pour confirmer votre compte.", "success")
         return redirect(_safe_next())
     return render_template("register.html", form={})
+
+
+@app.route("/forgot-password", methods=["GET", "POST"])
+def forgot_password():
+    if request.method == "POST":
+        email = (request.form.get("email") or "").strip().lower()
+        if not throttle_login("forgot:" + (request.remote_addr or "anon"), max_attempts=6):
+            flash("Trop de tentatives. Réessayez plus tard.", "error")
+            return render_template("forgot_password.html")
+        user = get_user_by_email(email)
+        if user:
+            token = make_token("reset", user["id"])
+            url = url_for("reset_password", token=token, _external=True)
+            html = mailer.render_email(
+                "Réinitialisation de votre mot de passe",
+                f"Bonjour {user['username']}, vous avez demandé à réinitialiser votre "
+                "mot de passe. Ce lien est valable 1 heure.",
+                "Choisir un nouveau mot de passe", url,
+                "Si vous n'êtes pas à l'origine de cette demande, ignorez cet e-mail.")
+            try:
+                mailer.send_email(email, "Réinitialisation du mot de passe — AubeVideo", html)
+            except Exception:
+                app.logger.exception("Envoi e-mail reset échoué")
+        # Réponse identique que l'e-mail existe ou non (anti-énumération)
+        flash("Si un compte existe avec cet e-mail, un lien de réinitialisation a été envoyé.", "success")
+        return redirect(url_for("login"))
+    return render_template("forgot_password.html")
+
+
+@app.route("/reset-password/<token>", methods=["GET", "POST"])
+def reset_password(token):
+    uid = verify_token("reset", token, max_age=3600)
+    if not uid:
+        flash("Lien invalide ou expiré. Refaites une demande.", "error")
+        return redirect(url_for("forgot_password"))
+    if request.method == "POST":
+        pw = request.form.get("password") or ""
+        pw2 = request.form.get("password2") or ""
+        if pw != pw2:
+            flash("Les deux mots de passe ne correspondent pas.", "error")
+            return render_template("reset_password.html", token=token)
+        ok, err = set_password(uid, pw)
+        if not ok:
+            flash(err, "error")
+            return render_template("reset_password.html", token=token)
+        app.logger.info("Mot de passe réinitialisé pour uid=%s", uid)
+        flash("Mot de passe mis à jour. Vous pouvez vous connecter.", "success")
+        return redirect(url_for("login"))
+    return render_template("reset_password.html", token=token)
+
+
+@app.route("/verify-email/<token>")
+def verify_email(token):
+    uid = verify_token("verify", token, max_age=60 * 60 * 24 * 7)  # 7 jours
+    if not uid:
+        flash("Lien de vérification invalide ou expiré.", "error")
+        return redirect(url_for("home"))
+    mark_email_verified(uid)
+    if session.get("user_id") == uid:
+        session["email_verified"] = True
+    flash("Votre adresse e-mail est confirmée. Merci !", "success")
+    return redirect(url_for("home"))
+
+
+@app.route("/resend-verification", methods=["POST"])
+@login_required
+def resend_verification():
+    uid = session["user_id"]
+    with db_cursor() as cur:
+        cur.execute("SELECT username, email, email_verified FROM users WHERE id = %s", (uid,))
+        row = cur.fetchone()
+    if row and row["email"] and not row["email_verified"]:
+        try:
+            _send_verification_email(uid, row["username"], row["email"])
+        except Exception:
+            app.logger.exception("Renvoi vérification échoué")
+    flash("E-mail de vérification renvoyé.", "success")
+    return redirect(request.referrer or url_for("home"))
 
 
 @app.route("/login/2fa", methods=["GET", "POST"])

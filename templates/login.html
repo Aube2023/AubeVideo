@@ -20,6 +20,9 @@
     <button type="submit" class="btn btn-primary btn-lg btn-block">Se connecter</button>
   </form>
 
+  <div class="auth-foot" style="margin-top:14px">
+    <a href="{{ url_for('forgot_password') }}">Mot de passe oublié ?</a>
+  </div>
   <div class="auth-foot">
     <span>Pas encore de compte ?</span>
     <a href="{{ url_for('register', next=request.args.get('next','')) }}"><strong>Créer un compte</strong></a>

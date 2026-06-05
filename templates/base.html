@@ -190,6 +190,15 @@
       </div>
     {% endif %}
   {% endwith %}
+  {% if current_user and not email_verified %}
+    <div class="verify-banner">
+      <span>Confirmez votre adresse e-mail pour sécuriser votre compte et activer toutes les fonctionnalités.</span>
+      <form method="post" action="{{ url_for('resend_verification') }}">
+        <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
+        <button type="submit">Renvoyer l'e-mail</button>
+      </form>
+    </div>
+  {% endif %}
   {% block content %}{% endblock %}
 </main>
 

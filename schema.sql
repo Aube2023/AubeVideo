@@ -299,3 +299,6 @@ ALTER TABLE videos ADD COLUMN IF NOT EXISTS age_restricted BOOLEAN DEFAULT FALSE
 ALTER TABLE users ADD COLUMN IF NOT EXISTS password_hash VARCHAR(256);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_users_username_lower ON users (LOWER(username));
 CREATE UNIQUE INDEX IF NOT EXISTS idx_users_email_lower ON users (LOWER(email)) WHERE email IS NOT NULL;
+
+-- v5 : vérification d'e-mail
+ALTER TABLE users ADD COLUMN IF NOT EXISTS email_verified BOOLEAN DEFAULT FALSE;

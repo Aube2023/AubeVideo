@@ -266,3 +266,18 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
   opacity: 0; transition: opacity .2s;
 }
 .player-overlay.show { opacity: 1; }
+
+/* ===== Bannière de vérification e-mail ===== */
+.verify-banner {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 12px; flex-wrap: wrap;
+  background: color-mix(in srgb, var(--accent) 14%, var(--bg-elev));
+  border: 1px solid var(--accent); color: var(--text);
+  padding: 10px 16px; border-radius: 10px; margin-bottom: 16px; font-size: 14px;
+}
+.verify-banner form { margin: 0; }
+.verify-banner button {
+  background: var(--accent); color: #fff; border: 0; padding: 6px 14px;
+  border-radius: 6px; font-weight: 600; cursor: pointer; white-space: nowrap;
+}
+.verify-banner button:hover { background: var(--accent-hover); }

@@ -102,6 +102,26 @@ def authenticate_local(identifier, password):
     return dict(row)
 
 
+def get_user_by_email(email):
+    """Renvoie (id, username, email) du compte local pour cet e-mail, ou None.
+    Seuls les comptes avec mot de passe local peuvent être réinitialisés ici."""
+    email = (email or "").strip().lower()
+    if not email:
+        return None
+    with db_cursor() as cur:
+        cur.execute(
+            "SELECT id, username, email FROM users WHERE LOWER(email) = %s AND password_hash IS NOT NULL LIMIT 1",
+            (email,),
+        )
+        row = cur.fetchone()
+    return dict(row) if row else None
+
+
+def mark_email_verified(user_id):
+    with db_cursor(commit=True) as cur:
+        cur.execute("UPDATE users SET email_verified = TRUE WHERE id = %s", (user_id,))
+
+
 def set_password(user_id, password):
     """Définit/réinitialise le mot de passe local d'un utilisateur."""
     if len(password or "") < 8:
