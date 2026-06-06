@@ -113,13 +113,13 @@ form.addEventListener('submit', (e) => {
       label.textContent = 'Traitement serveur (FFmpeg)...';
       window.location = xhr.responseURL;
     } else {
-      alert('Erreur lors de l\'upload (' + xhr.status + ').');
+      uiToast('Erreur lors de l\'upload (' + xhr.status + ').');
       submitBtn.disabled = false;
       bar.style.display = 'none';
     }
   });
   xhr.addEventListener('error', () => {
-    alert('Erreur réseau pendant l\'upload.');
+    uiToast('Erreur réseau pendant l\'upload.');
     submitBtn.disabled = false;
   });
   submitBtn.disabled = true;

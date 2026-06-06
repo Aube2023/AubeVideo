@@ -115,7 +115,7 @@ async function postComment(videoId, parentId) {
     method: 'POST', headers: jsonHeaders(),
     body: JSON.stringify({content, parent_id: parentId || null})
   });
-  if (!r.ok) { alert('Erreur.'); return; }
+  if (!r.ok) { uiToast('Erreur lors de l\'envoi du commentaire.'); return; }
   const c = await r.json();
   if (parentId) {
     const box = document.getElementById('replies-' + parentId);
@@ -198,7 +198,7 @@ async function likeComment(commentId, btn) {
 }
 
 async function deleteComment(videoId, commentId) {
-  if (!confirm('Supprimer ce commentaire ?')) return;
+  if (!await uiConfirm('Supprimer ce commentaire ?', {danger: true, okLabel: 'Supprimer'})) return;
   const r = await fetch(`/api/video/${videoId}/comment/${commentId}`, {
     method: 'DELETE', headers: jsonHeaders()
   });
@@ -285,7 +285,7 @@ function shareVideo(id) {
   const t = Math.floor(player ? player.currentTime : 0);
   const url = location.origin + '/watch/' + id + (t > 0 ? '?t=' + t : '');
   if (navigator.share) navigator.share({title: document.title, url});
-  else { navigator.clipboard.writeText(url); alert('Lien copié : ' + url); }
+  else { navigator.clipboard.writeText(url); uiToast('Lien copié dans le presse-papiers'); }
 }
 
 // Seek on load if ?t=
@@ -322,6 +322,87 @@ function openSaveToPlaylist(videoId) {
   });
 }
 function closeModal() { document.getElementById('modalRoot').innerHTML = ''; }
+
+/* ========= DIALOGUES & TOASTS (remplacent alert/confirm/prompt natifs) ========= */
+function uiDialog(opts) {
+  return new Promise(resolve => {
+    const root = document.getElementById('modalRoot');
+    if (!root) { resolve(null); return; }
+    const wrap = document.createElement('div');
+    wrap.className = 'modal-bg';
+    wrap.innerHTML = `
+      <div class="modal dialog" role="dialog" aria-modal="true">
+        ${opts.title ? `<h3>${escapeHtml(opts.title)}</h3>` : ''}
+        ${opts.message ? `<p class="dialog-msg">${escapeHtml(opts.message)}</p>` : ''}
+        ${opts.bodyHtml || ''}
+        <div class="form-actions">
+          ${opts.cancelLabel ? `<button type="button" class="btn-ghost" data-act="cancel">${escapeHtml(opts.cancelLabel)}</button>` : ''}
+          <button type="button" class="btn ${opts.danger ? 'btn-danger-solid' : 'btn-primary'}" data-act="ok">${escapeHtml(opts.okLabel || 'OK')}</button>
+        </div>
+      </div>`;
+    root.innerHTML = '';
+    root.appendChild(wrap);
+    const dlg = wrap.querySelector('.dialog');
+    const done = val => { root.innerHTML = ''; document.removeEventListener('keydown', onKey); resolve(val); };
+    const ok = () => done(opts.collect ? opts.collect(dlg) : true);
+    const cancel = () => done(null);
+    function onKey(e) {
+      if (e.key === 'Escape') cancel();
+      else if (e.key === 'Enter' && e.target.tagName !== 'TEXTAREA') { e.preventDefault(); ok(); }
+    }
+    wrap.addEventListener('click', e => { if (e.target === wrap) cancel(); });
+    wrap.querySelector('[data-act="ok"]').addEventListener('click', ok);
+    const cb = wrap.querySelector('[data-act="cancel"]');
+    if (cb) cb.addEventListener('click', cancel);
+    document.addEventListener('keydown', onKey);
+    const first = dlg.querySelector('input:not([type=hidden]), select, textarea') || wrap.querySelector('[data-act="ok"]');
+    first.focus();
+    if (first.select) first.select();
+  });
+}
+function uiAlert(message, title) {
+  return uiDialog({title: title || '', message, okLabel: 'OK'});
+}
+function uiConfirm(message, opts = {}) {
+  return uiDialog({
+    title: opts.title || 'Confirmation', message,
+    okLabel: opts.okLabel || 'Confirmer',
+    cancelLabel: opts.cancelLabel || 'Annuler',
+    danger: opts.danger,
+  }).then(v => v !== null);
+}
+function uiPrompt(title, opts = {}) {
+  return uiDialog({
+    title,
+    bodyHtml: `<label class="field">
+        ${opts.label ? `<span>${escapeHtml(opts.label)}</span>` : ''}
+        <input type="text" data-dlg-input value="${escapeAttr(opts.value || '')}"
+               placeholder="${escapeAttr(opts.placeholder || '')}" maxlength="${opts.maxlength || 200}">
+      </label>`,
+    okLabel: opts.okLabel || 'OK', cancelLabel: 'Annuler',
+    collect: el => el.querySelector('[data-dlg-input]').value.trim(),
+  });
+}
+const VISIBILITY_LABELS = [
+  ['public', 'Publique — visible par tout le monde'],
+  ['unlisted', 'Non répertoriée — accessible par lien seulement'],
+  ['private', 'Privée — visible par vous seul'],
+];
+function uiVisibilityField(current) {
+  return `<label class="field"><span>Visibilité</span>
+    <select data-dlg-vis>${VISIBILITY_LABELS.map(([v, l]) =>
+      `<option value="${v}" ${v === current ? 'selected' : ''}>${l}</option>`).join('')}
+    </select></label>`;
+}
+function uiToast(message, ms = 2600) {
+  document.querySelectorAll('.toast').forEach(t => t.remove());
+  const el = document.createElement('div');
+  el.className = 'toast';
+  el.textContent = message;
+  document.body.appendChild(el);
+  requestAnimationFrame(() => el.classList.add('show'));
+  setTimeout(() => { el.classList.remove('show'); setTimeout(() => el.remove(), 300); }, ms);
+}
 
 function openEmbed(videoId) {
   const code = `<iframe src="${location.origin}/embed/${videoId}" width="640" height="360" frameborder="0" allowfullscreen></iframe>`;
@@ -383,8 +464,8 @@ async function submitReport(type, id) {
     method: 'POST', headers: jsonHeaders(),
     body: JSON.stringify({target_type: type, target_id: id, reason, details})
   });
-  if (r.ok) { alert('Merci — votre signalement a été transmis.'); closeModal(); }
-  else alert('Erreur lors de l\'envoi.');
+  if (r.ok) { closeModal(); uiToast('Merci — votre signalement a été transmis.'); }
+  else uiToast('Erreur lors de l\'envoi.');
 }
 
 /* ========= UTILS ========= */
@@ -574,7 +655,7 @@ function openCaptionsUpload(videoId) {
     const r = await fetch('/api/video/' + videoId + '/captions',
       {method: 'POST', headers: {'X-CSRF-Token': getCsrf()}, body: fd});
     if (r.ok) { closeModal(); location.reload(); }
-    else alert('Erreur');
+    else uiToast('Erreur lors du téléversement des sous-titres.');
   });
 }
 

@@ -83,23 +83,34 @@
 
 <script>
 async function deleteVideo(id) {
-  if (!confirm('Supprimer définitivement cette vidéo ?')) return;
-  const r = await fetch('/api/video/' + id, {method: 'DELETE'});
+  if (!await uiConfirm('Supprimer définitivement cette vidéo ? Cette action est irréversible.',
+                       {danger: true, okLabel: 'Supprimer'})) return;
+  const r = await fetch('/api/video/' + id, {method: 'DELETE', headers: jsonHeaders()});
   if (r.ok) document.querySelector(`tr[data-id="${id}"]`).remove();
-  else alert('Erreur lors de la suppression.');
+  else uiToast('Erreur lors de la suppression.');
 }
 async function editVideo(id, currentTitle, currentVis) {
-  const title = prompt('Nouveau titre :', currentTitle);
-  if (title === null) return;
-  const visibility = prompt('Visibilité (public, unlisted, private) :', currentVis);
-  if (visibility === null) return;
+  const res = await uiDialog({
+    title: 'Modifier la vidéo',
+    bodyHtml: `
+      <label class="field"><span>Titre</span>
+        <input type="text" data-dlg-input maxlength="200" value="${escapeAttr(currentTitle)}">
+      </label>
+      ${uiVisibilityField(currentVis)}`,
+    okLabel: 'Enregistrer', cancelLabel: 'Annuler',
+    collect: el => ({
+      title: el.querySelector('[data-dlg-input]').value.trim(),
+      visibility: el.querySelector('[data-dlg-vis]').value,
+    }),
+  });
+  if (!res || !res.title) return;
   const r = await fetch('/api/video/' + id, {
     method: 'PATCH',
-    headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({title, visibility})
+    headers: jsonHeaders(),
+    body: JSON.stringify(res)
   });
   if (r.ok) location.reload();
-  else alert('Erreur lors de la modification.');
+  else uiToast('Erreur lors de la modification.');
 }
 </script>
 {% endblock %}

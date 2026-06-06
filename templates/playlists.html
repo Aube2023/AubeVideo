@@ -30,19 +30,30 @@
 
 <script>
 async function createPlaylistPrompt() {
-  const title = prompt("Nom de la playlist :");
-  if (!title) return;
-  const visibility = prompt("Visibilité (public, unlisted, private) :", "public") || "public";
+  const res = await uiDialog({
+    title: 'Nouvelle playlist',
+    bodyHtml: `
+      <label class="field"><span>Nom</span>
+        <input type="text" data-dlg-input maxlength="120" placeholder="Ma playlist">
+      </label>
+      ${uiVisibilityField('public')}`,
+    okLabel: 'Créer', cancelLabel: 'Annuler',
+    collect: el => ({
+      title: el.querySelector('[data-dlg-input]').value.trim(),
+      visibility: el.querySelector('[data-dlg-vis]').value,
+    }),
+  });
+  if (!res || !res.title) return;
   const r = await fetch('/api/playlist', {
     method: 'POST',
-    headers: {'Content-Type': 'application/json', 'X-CSRF-Token': getCsrf()},
-    body: JSON.stringify({title, visibility})
+    headers: jsonHeaders(),
+    body: JSON.stringify(res)
   });
   if (r.ok) location.reload();
-  else alert('Erreur de création.');
+  else uiToast('Erreur de création.');
 }
 async function deletePlaylist(id) {
-  if (!confirm('Supprimer cette playlist ?')) return;
+  if (!await uiConfirm('Supprimer cette playlist ?', {danger: true, okLabel: 'Supprimer'})) return;
   const r = await fetch('/api/playlist/' + id, {
     method: 'DELETE',
     headers: {'X-CSRF-Token': getCsrf()}

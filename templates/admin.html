@@ -47,7 +47,7 @@ async function handleReport(id, action) {
     body: JSON.stringify({action})
   });
   if (r.ok) document.querySelector(`tr[data-report="${id}"]`).remove();
-  else alert('Erreur.');
+  else uiToast('Erreur lors du traitement.');
 }
 </script>
 {% endblock %}
