@@ -16,7 +16,7 @@ from typing import Any, Dict, List, Optional
 from flask import Blueprint, request, jsonify, g, url_for
 
 from db import db_cursor, fetch_video, VISIBILITIES, normalize_visibility, ensure_user
-from auth import pam_authenticate
+from auth import authenticate_local, authenticate_aubemail, pam_authenticate
 from api_tokens import (
     create_token, revoke_token, revoke_all_for_user,
     api_auth_required, api_auth_optional, list_tokens,
@@ -164,17 +164,27 @@ def auth_login():
     platform = (data.get("platform") or "").strip()[:32]
     if not username or not password:
         return jsonify({"error": "identifiants requis"}), 400
-    if not pam_authenticate(username, password):
+    # Même cascade que le login web :
+    # 1) compte local (email/username + mdp hashé), 2) SSO AubeMail, 3) PAM.
+    user = authenticate_local(username, password) \
+        or authenticate_aubemail(username, password)
+    if user:
+        uid = user["id"]
+        username = user["username"]
+    elif pam_authenticate(username, password):
+        uid = ensure_user(username, display_name=username)
+    else:
         return jsonify({"error": "identifiants invalides"}), 401
-    uid = ensure_user(username, display_name=username)
     with db_cursor() as cur:
         cur.execute(
-            "SELECT is_banned, totp_enabled, display_name, avatar_url FROM users WHERE id = %s",
+            "SELECT username, is_banned, totp_enabled, display_name, avatar_url "
+            "FROM users WHERE id = %s",
             (uid,),
         )
         row = cur.fetchone()
     if not row:
         return jsonify({"error": "utilisateur introuvable"}), 404
+    username = row["username"]
     if row["is_banned"]:
         return jsonify({"error": "compte suspendu"}), 403
     if row["totp_enabled"]:
