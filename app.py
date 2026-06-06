@@ -969,7 +969,7 @@ def hls(video_id, subpath):
     if v["visibility"] == "private":
         if not session.get("user_id") or session["user_id"] != v["user_id"]:
             abort(403)
-    base = (user_dir(v["user_id"]) / "hls" / Path(v["filename"]).stem).resolve()
+    base = (user_dir(v["user_id"]) / "videos" / "hls" / Path(v["filename"]).stem).resolve()
     target = (base / subpath).resolve()
     if os.path.commonpath([str(base), str(target)]) != str(base):
         abort(403)  # anti path-traversal
