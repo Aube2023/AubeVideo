@@ -9,6 +9,7 @@ import android.view.ViewGroup
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -22,13 +23,21 @@ import androidx.media3.ui.PlayerView
 
 /**
  * Surface ExoPlayer dans Compose. Le cycle de vie du Player est géré par l'appelant.
+ * Si [onToggleFullscreen] est fourni, le bouton plein écran apparaît dans les contrôles.
  */
 @Composable
-fun VideoPlayer(player: ExoPlayer, modifier: Modifier = Modifier) {
+fun VideoPlayer(
+    player: ExoPlayer,
+    modifier: Modifier = Modifier,
+    fullscreen: Boolean = false,
+    onToggleFullscreen: (() -> Unit)? = null,
+) {
     Box(
         modifier
-            .fillMaxWidth()
-            .aspectRatio(16f / 9f)
+            .then(
+                if (fullscreen) Modifier.fillMaxSize()
+                else Modifier.fillMaxWidth().aspectRatio(16f / 9f)
+            )
             .background(Color.Black)
     ) {
         AndroidView(
@@ -45,7 +54,15 @@ fun VideoPlayer(player: ExoPlayer, modifier: Modifier = Modifier) {
                     )
                 }
             },
-            update = { it.player = player },
+            update = { view ->
+                view.player = player
+                if (onToggleFullscreen != null) {
+                    view.setFullscreenButtonClickListener(
+                        PlayerView.FullscreenButtonClickListener { onToggleFullscreen() }
+                    )
+                    view.setFullscreenButtonState(fullscreen)
+                }
+            },
         )
     }
     DisposableEffect(Unit) { onDispose { /* le player vit ailleurs */ } }

@@ -11,10 +11,12 @@ import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Subscriptions
 import androidx.compose.material.icons.filled.VideoLibrary
 import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -44,7 +46,9 @@ sealed class TabRoute(val route: String, val label: String, val icon: ImageVecto
     data object Search : TabRoute("search", "Recherche", Icons.Filled.Search)
 }
 
-private val tabs = listOf(TabRoute.Home, TabRoute.Shorts, TabRoute.Subs, TabRoute.Library, TabRoute.Search)
+// La recherche n'est pas dans la barre du bas (accessible via la loupe en haut),
+// pour laisser respirer les 4 onglets principaux.
+private val tabs = listOf(TabRoute.Home, TabRoute.Shorts, TabRoute.Subs, TabRoute.Library)
 
 @Composable
 fun AppNavigation(app: AubeVideoApplication) {
@@ -72,7 +76,14 @@ fun AppNavigation(app: AubeVideoApplication) {
                                 }
                             },
                             icon = { Icon(tab.icon, contentDescription = tab.label) },
-                            label = { Text(tab.label) },
+                            label = {
+                                Text(
+                                    tab.label,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                            },
                         )
                     }
                 }

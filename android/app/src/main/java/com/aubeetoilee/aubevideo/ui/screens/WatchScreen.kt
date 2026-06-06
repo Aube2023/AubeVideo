@@ -80,11 +80,38 @@ fun WatchScreen(app: AubeVideoApplication, navController: NavController, videoId
     var commentText by remember { mutableStateOf("") }
     var loading by remember { mutableStateOf(true) }
     var error by remember { mutableStateOf<String?>(null) }
+    var fullscreen by remember { mutableStateOf(false) }
+
+    val activity = ctx as? android.app.Activity
+    fun setFullscreen(on: Boolean) {
+        fullscreen = on
+        val act = activity ?: return
+        act.requestedOrientation = if (on)
+            android.content.pm.ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+        else
+            android.content.pm.ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+        val controller = androidx.core.view.WindowCompat
+            .getInsetsController(act.window, act.window.decorView)
+        if (on) {
+            controller.hide(androidx.core.view.WindowInsetsCompat.Type.systemBars())
+            controller.systemBarsBehavior = androidx.core.view
+                .WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+        } else {
+            controller.show(androidx.core.view.WindowInsetsCompat.Type.systemBars())
+        }
+    }
+    // Retour matériel : sort du plein écran au lieu de quitter la vidéo
+    androidx.activity.compose.BackHandler(enabled = fullscreen) { setFullscreen(false) }
 
     val player = remember(videoId) {
         ExoPlayer.Builder(ctx).build().apply { playWhenReady = true }
     }
-    DisposableEffect(videoId) { onDispose { player.release() } }
+    DisposableEffect(videoId) {
+        onDispose {
+            player.release()
+            if (fullscreen) setFullscreen(false)
+        }
+    }
 
     LaunchedEffect(videoId) {
         loading = true
@@ -142,10 +169,23 @@ fun WatchScreen(app: AubeVideoApplication, navController: NavController, videoId
         Text(error ?: "Vidéo introuvable", color = MaterialTheme.colorScheme.error)
     }
 
+    // Mode plein écran : le lecteur occupe tout l'écran, rien d'autre
+    if (fullscreen) {
+        VideoPlayer(
+            player = player,
+            fullscreen = true,
+            onToggleFullscreen = { setFullscreen(false) },
+        )
+        return
+    }
+
     LazyColumn(Modifier.fillMaxSize()) {
         item {
             Box {
-                VideoPlayer(player = player)
+                VideoPlayer(
+                    player = player,
+                    onToggleFullscreen = { setFullscreen(true) },
+                )
                 IconButton(
                     onClick = { navController.popBackStack() },
                     modifier = Modifier.padding(8.dp),
