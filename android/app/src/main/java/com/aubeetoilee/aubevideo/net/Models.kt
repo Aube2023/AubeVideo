@@ -59,6 +59,7 @@ data class VideoDto(
     val description: String? = null,
     val thumbnail: String,
     val stream: String,
+    val hls: String? = null,
     val duration: Int = 0,
     val views: Long = 0,
     val likes: Long = 0,

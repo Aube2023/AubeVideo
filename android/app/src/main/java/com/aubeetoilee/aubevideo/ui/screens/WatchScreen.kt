@@ -91,10 +91,23 @@ fun WatchScreen(app: AubeVideoApplication, navController: NavController, videoId
         try {
             val v = app.network.api.video(videoId)
             video = v
-            // Démarrer la lecture sur le stream principal (qualité auto côté serveur)
-            val streamUrl = absoluteUrl(v.stream) ?: v.stream
-            player.setMediaItem(MediaItem.fromUri(streamUrl))
+            // HLS adaptatif (qualité auto selon la connexion) si dispo, sinon MP4
+            val hlsUrl = v.hls?.let { absoluteUrl(it) }
+            val mp4Url = absoluteUrl(v.stream) ?: v.stream
+            player.setMediaItem(MediaItem.fromUri(hlsUrl ?: mp4Url))
             player.prepare()
+            // Repli MP4 si le flux HLS échoue
+            if (hlsUrl != null) {
+                player.addListener(object : androidx.media3.common.Player.Listener {
+                    override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
+                        val pos = player.currentPosition
+                        player.setMediaItem(MediaItem.fromUri(mp4Url))
+                        player.prepare()
+                        if (pos > 0) player.seekTo(pos)
+                        player.play()
+                    }
+                })
+            }
             // Reprise au dernier progress connu si dispo
             v.progressSeconds?.takeIf { it > 5 }?.let { player.seekTo(it.toLong() * 1000L) }
             // Enregistre la vue

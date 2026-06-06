@@ -48,6 +48,8 @@ def video_dto(v: Dict[str, Any], detailed: bool = False) -> Dict[str, Any]:
         "title": v["title"],
         "thumbnail": url_for("thumbnail", video_id=v["id"]),
         "stream": url_for("stream", video_id=v["id"]),
+        "hls": (url_for("hls", video_id=v["id"], subpath="master.m3u8")
+                if v.get("hls_ready") else None),
         "duration": v.get("duration") or 0,
         "views": v.get("views") or 0,
         "likes": v.get("likes_count") or 0,

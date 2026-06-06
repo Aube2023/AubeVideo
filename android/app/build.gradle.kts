@@ -13,8 +13,8 @@ android {
         applicationId = "com.aubeetoilee.aubevideo"
         minSdk = 24
         targetSdk = 35
-        versionCode = 1
-        versionName = "1.0.0"
+        versionCode = 2
+        versionName = "1.1.0"
         vectorDrawables { useSupportLibrary = true }
 
         val baseUrl = (project.findProperty("aubevideo.baseUrl") as String?)
@@ -27,11 +27,23 @@ android {
         buildConfig = true
     }
 
+    signingConfigs {
+        create("release") {
+            storeFile = rootProject.file("keystore/aubevideo-release.jks")
+            storePassword = (project.findProperty("aubevideo.storePassword") as String?)
+                ?: "AubeVideo-2026-release"
+            keyAlias = "aubevideo"
+            keyPassword = (project.findProperty("aubevideo.keyPassword") as String?)
+                ?: "AubeVideo-2026-release"
+        }
+    }
+
     buildTypes {
         debug { isMinifyEnabled = false }
         release {
             isMinifyEnabled = true
             isShrinkResources = true
+            signingConfig = signingConfigs.getByName("release")
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
         }
     }

@@ -24,10 +24,12 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
@@ -45,6 +47,7 @@ import com.aubeetoilee.aubevideo.AubeVideoApplication
 import com.aubeetoilee.aubevideo.net.VideoDto
 import com.aubeetoilee.aubevideo.ui.components.VideoCard
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HomeScreen(app: AubeVideoApplication, navController: NavController) {
     var category by remember { mutableStateOf("Toutes") }
@@ -55,12 +58,14 @@ fun HomeScreen(app: AubeVideoApplication, navController: NavController) {
     }
     var page by remember(category) { mutableStateOf(1) }
     var loading by remember { mutableStateOf(true) }
+    var refreshing by remember { mutableStateOf(false) }
+    var refreshTick by remember { mutableStateOf(0) }
     var hasMore by remember { mutableStateOf(true) }
     var items by remember(category) { mutableStateOf<List<VideoDto>>(emptyList()) }
     var error by remember { mutableStateOf<String?>(null) }
     val listState = rememberLazyListState()
 
-    LaunchedEffect(category) {
+    LaunchedEffect(category, refreshTick) {
         loading = true
         error = null
         page = 1
@@ -77,6 +82,7 @@ fun HomeScreen(app: AubeVideoApplication, navController: NavController) {
             error = e.message
         }
         loading = false
+        refreshing = false
     }
 
     // Pagination infinie
@@ -163,30 +169,69 @@ fun HomeScreen(app: AubeVideoApplication, navController: NavController) {
 
         Spacer(Modifier.height(8.dp))
 
-        if (loading && items.isEmpty()) {
+        if (loading && items.isEmpty() && !refreshing) {
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 CircularProgressIndicator()
             }
         } else if (error != null && items.isEmpty()) {
-            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Text(error ?: "Erreur", color = MaterialTheme.colorScheme.error)
+            Column(
+                Modifier.fillMaxSize(),
+                verticalArrangement = Arrangement.Center,
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                Text(
+                    "Impossible de charger les vidéos",
+                    style = MaterialTheme.typography.titleMedium,
+                )
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    "Vérifiez votre connexion internet.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Spacer(Modifier.height(16.dp))
+                androidx.compose.material3.Button(onClick = { refreshTick++ }) {
+                    Text("Réessayer")
+                }
             }
         } else {
-            LazyColumn(
-                state = listState,
-                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+            PullToRefreshBox(
+                isRefreshing = refreshing,
+                onRefresh = { refreshing = true; refreshTick++ },
+                modifier = Modifier.fillMaxSize(),
             ) {
-                items(items, key = { it.id }) { v ->
-                    VideoCard(
-                        video = v,
-                        onClick = { navController.navigate("watch/${v.id}") },
-                        onChannelClick = { navController.navigate("channel/$it") },
-                    )
-                }
-                if (loading) {
-                    item {
-                        Box(Modifier.fillMaxWidth().height(60.dp), contentAlignment = Alignment.Center) {
-                            CircularProgressIndicator()
+                LazyColumn(
+                    state = listState,
+                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+                    modifier = Modifier.fillMaxSize(),
+                ) {
+                    items(items, key = { it.id }) { v ->
+                        VideoCard(
+                            video = v,
+                            onClick = { navController.navigate("watch/${v.id}") },
+                            onChannelClick = { navController.navigate("channel/$it") },
+                        )
+                    }
+                    if (loading) {
+                        item {
+                            Box(Modifier.fillMaxWidth().height(60.dp), contentAlignment = Alignment.Center) {
+                                CircularProgressIndicator()
+                            }
+                        }
+                    }
+                    if (!loading && items.isEmpty()) {
+                        item {
+                            Column(
+                                Modifier.fillMaxWidth().padding(vertical = 48.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                            ) {
+                                Text("Aucune vidéo dans cette catégorie",
+                                    style = MaterialTheme.typography.titleSmall)
+                                Spacer(Modifier.height(4.dp))
+                                Text("Revenez plus tard ou explorez une autre catégorie.",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
                         }
                     }
                 }
