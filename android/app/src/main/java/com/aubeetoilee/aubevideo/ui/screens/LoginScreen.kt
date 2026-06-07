@@ -21,6 +21,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -32,8 +33,13 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.foundation.background
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
@@ -66,55 +72,95 @@ fun LoginScreen(app: AubeVideoApplication, navController: NavController) {
     }
 
     val fieldShape = RoundedCornerShape(14.dp)
-    Box(Modifier.fillMaxSize()) {
+    // Champs lisibles sur le fond sombre quel que soit le thème système
+    val fieldColors = OutlinedTextFieldDefaults.colors(
+        focusedTextColor = Color.White,
+        unfocusedTextColor = Color.White,
+        cursorColor = Color(0xFFF7B545),
+        focusedBorderColor = Color(0xFFF7B545),
+        unfocusedBorderColor = Color(0xFF3C5070),
+        focusedLabelColor = Color(0xFFF7B545),
+        unfocusedLabelColor = Color(0xFF9FB0CC),
+    )
+    // Fond façon landing page : ciel d'aube (nuit étoilée → bleu)
+    val dawnBrush = Brush.verticalGradient(
+        listOf(Color(0xFF0D1626), Color(0xFF16243F), Color(0xFF1E3458)),
+    )
+    Box(Modifier.fillMaxSize().background(dawnBrush)) {
         Column(
             Modifier.fillMaxSize().padding(32.dp),
             verticalArrangement = Arrangement.Center,
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            // Logo soleil rayonnant + play central (identité Aube)
-            Box(Modifier.size(72.dp), contentAlignment = Alignment.Center) {
+            // Logo soleil rayonnant + play central (identité Aube, repris du logo.svg)
+            Box(Modifier.size(88.dp), contentAlignment = Alignment.Center) {
                 Canvas(Modifier.fillMaxSize()) {
                     val r = size.minDimension / 2f
-                    val gold = Color(0xFFE8B84A)
+                    // Halo doux derrière le soleil
+                    drawCircle(
+                        brush = androidx.compose.ui.graphics.Brush.radialGradient(
+                            listOf(Color(0x55F7B545), Color(0x00F7B545)),
+                            center = center, radius = r,
+                        ),
+                        radius = r,
+                    )
+                    // 12 rayons triangulaires
+                    val ray = Color(0xFFF7B545)
                     for (i in 0 until 12) {
                         val a = Math.toRadians((i * 30).toDouble())
-                        drawCircle(
-                            color = gold,
-                            radius = r * 0.07f,
-                            center = Offset(
-                                center.x + (r * 0.82f) * cos(a).toFloat(),
-                                center.y + (r * 0.82f) * sin(a).toFloat(),
-                            ),
-                        )
+                        val dirX = cos(a).toFloat()
+                        val dirY = sin(a).toFloat()
+                        val perpX = -dirY
+                        val perpY = dirX
+                        val tip = Offset(center.x + r * 0.95f * dirX, center.y + r * 0.95f * dirY)
+                        val baseC = Offset(center.x + r * 0.66f * dirX, center.y + r * 0.66f * dirY)
+                        val half = r * 0.07f
+                        val path = androidx.compose.ui.graphics.Path().apply {
+                            moveTo(tip.x, tip.y)
+                            lineTo(baseC.x + perpX * half, baseC.y + perpY * half)
+                            lineTo(baseC.x - perpX * half, baseC.y - perpY * half)
+                            close()
+                        }
+                        drawPath(path, ray)
                     }
-                    drawCircle(color = gold, radius = r * 0.52f)
+                    // Disque solaire en dégradé radial (comme le logo web)
+                    drawCircle(
+                        brush = androidx.compose.ui.graphics.Brush.radialGradient(
+                            listOf(Color(0xFFFFE39A), Color(0xFFF7B545), Color(0xFFE8851C)),
+                            center = Offset(center.x - r * 0.12f, center.y - r * 0.16f),
+                            radius = r * 0.72f,
+                        ),
+                        radius = r * 0.5f,
+                    )
                 }
                 Icon(
                     Icons.Filled.PlayArrow,
                     contentDescription = null,
-                    tint = Color(0xFF1A1A1A),
-                    modifier = Modifier.size(28.dp),
+                    tint = Color.White,
+                    modifier = Modifier.size(34.dp),
                 )
             }
-            Spacer(Modifier.height(16.dp))
+            Spacer(Modifier.height(18.dp))
             Text(
-                "AubeVideo",
+                buildAnnotatedString {
+                    withStyle(SpanStyle(color = Color.White)) { append("Aube") }
+                    withStyle(SpanStyle(color = Color(0xFFF7B545))) { append("Video") }
+                },
                 style = MaterialTheme.typography.headlineMedium,
-                color = MaterialTheme.colorScheme.primary,
                 fontWeight = FontWeight.Bold,
             )
+            Spacer(Modifier.height(4.dp))
             Text(
                 "La plateforme vidéo de L'Aube Étoilée",
                 style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                color = Color(0xFF9FB0CC),
             )
             Spacer(Modifier.height(36.dp))
 
             OutlinedTextField(
                 value = username, onValueChange = { username = it },
                 label = { Text("Identifiant") }, singleLine = true,
-                shape = fieldShape,
+                shape = fieldShape, colors = fieldColors,
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
                 modifier = Modifier.fillMaxWidth(),
             )
@@ -122,7 +168,7 @@ fun LoginScreen(app: AubeVideoApplication, navController: NavController) {
             OutlinedTextField(
                 value = password, onValueChange = { password = it },
                 label = { Text("Mot de passe") }, singleLine = true,
-                shape = fieldShape,
+                shape = fieldShape, colors = fieldColors,
                 visualTransformation = PasswordVisualTransformation(),
                 keyboardOptions = KeyboardOptions(
                     keyboardType = KeyboardType.Password,
@@ -135,7 +181,7 @@ fun LoginScreen(app: AubeVideoApplication, navController: NavController) {
                 OutlinedTextField(
                     value = otp, onValueChange = { otp = it.filter(Char::isDigit).take(6) },
                     label = { Text("Code 2FA") }, singleLine = true,
-                    shape = fieldShape,
+                    shape = fieldShape, colors = fieldColors,
                     keyboardOptions = KeyboardOptions(
                         keyboardType = KeyboardType.NumberPassword,
                         imeAction = ImeAction.Done,
@@ -206,7 +252,7 @@ fun LoginScreen(app: AubeVideoApplication, navController: NavController) {
             }) {
                 Text(
                     "Pas encore de compte ? Créez-le sur le site",
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    color = Color(0xFF9FB0CC),
                 )
             }
         }
