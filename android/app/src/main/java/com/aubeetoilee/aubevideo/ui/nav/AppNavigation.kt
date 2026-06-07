@@ -14,7 +14,9 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.Scaffold
+import androidx.compose.ui.graphics.Color
 import androidx.compose.material3.Text
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.runtime.Composable
@@ -41,8 +43,8 @@ import com.aubeetoilee.aubevideo.ui.screens.SettingsScreen
 sealed class TabRoute(val route: String, val label: String, val icon: ImageVector) {
     data object Home : TabRoute("home", "Accueil", Icons.Filled.Home)
     data object Shorts : TabRoute("shorts", "Shorts", Icons.Filled.PlayArrow)
-    data object Subs : TabRoute("subs", "Abonnements", Icons.Filled.Subscriptions)
-    data object Library : TabRoute("library", "Bibliothèque", Icons.Filled.VideoLibrary)
+    data object Subs : TabRoute("subs", "Abos", Icons.Filled.Subscriptions)
+    data object Library : TabRoute("library", "Biblio", Icons.Filled.VideoLibrary)
     data object Search : TabRoute("search", "Recherche", Icons.Filled.Search)
 }
 
@@ -84,6 +86,12 @@ fun AppNavigation(app: AubeVideoApplication) {
                                     overflow = TextOverflow.Ellipsis,
                                 )
                             },
+                            colors = NavigationBarItemDefaults.colors(
+                                // Pastille dorée (identité Aube) au lieu du violet par défaut
+                                indicatorColor = Color(0x33F7B545),
+                                selectedIconColor = Color(0xFFF7B545),
+                                selectedTextColor = Color(0xFFF7B545),
+                            ),
                         )
                     }
                 }

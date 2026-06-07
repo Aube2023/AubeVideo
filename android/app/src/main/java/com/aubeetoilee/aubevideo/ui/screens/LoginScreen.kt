@@ -93,53 +93,7 @@ fun LoginScreen(app: AubeVideoApplication, navController: NavController) {
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             // Logo soleil rayonnant + play central (identité Aube, repris du logo.svg)
-            Box(Modifier.size(88.dp), contentAlignment = Alignment.Center) {
-                Canvas(Modifier.fillMaxSize()) {
-                    val r = size.minDimension / 2f
-                    // Halo doux derrière le soleil
-                    drawCircle(
-                        brush = androidx.compose.ui.graphics.Brush.radialGradient(
-                            listOf(Color(0x55F7B545), Color(0x00F7B545)),
-                            center = center, radius = r,
-                        ),
-                        radius = r,
-                    )
-                    // 12 rayons triangulaires
-                    val ray = Color(0xFFF7B545)
-                    for (i in 0 until 12) {
-                        val a = Math.toRadians((i * 30).toDouble())
-                        val dirX = cos(a).toFloat()
-                        val dirY = sin(a).toFloat()
-                        val perpX = -dirY
-                        val perpY = dirX
-                        val tip = Offset(center.x + r * 0.95f * dirX, center.y + r * 0.95f * dirY)
-                        val baseC = Offset(center.x + r * 0.66f * dirX, center.y + r * 0.66f * dirY)
-                        val half = r * 0.07f
-                        val path = androidx.compose.ui.graphics.Path().apply {
-                            moveTo(tip.x, tip.y)
-                            lineTo(baseC.x + perpX * half, baseC.y + perpY * half)
-                            lineTo(baseC.x - perpX * half, baseC.y - perpY * half)
-                            close()
-                        }
-                        drawPath(path, ray)
-                    }
-                    // Disque solaire en dégradé radial (comme le logo web)
-                    drawCircle(
-                        brush = androidx.compose.ui.graphics.Brush.radialGradient(
-                            listOf(Color(0xFFFFE39A), Color(0xFFF7B545), Color(0xFFE8851C)),
-                            center = Offset(center.x - r * 0.12f, center.y - r * 0.16f),
-                            radius = r * 0.72f,
-                        ),
-                        radius = r * 0.5f,
-                    )
-                }
-                Icon(
-                    Icons.Filled.PlayArrow,
-                    contentDescription = null,
-                    tint = Color.White,
-                    modifier = Modifier.size(34.dp),
-                )
-            }
+            com.aubeetoilee.aubevideo.ui.components.SunLogo(size = 88.dp, withHalo = true)
             Spacer(Modifier.height(18.dp))
             Text(
                 buildAnnotatedString {

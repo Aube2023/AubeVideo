@@ -39,6 +39,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -118,19 +120,18 @@ fun HomeScreen(app: AubeVideoApplication, navController: NavController) {
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
-                Box(
-                    Modifier
-                        .size(28.dp)
-                        .clip(RoundedCornerShape(6.dp))
-                        .background(MaterialTheme.colorScheme.primary),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Text("A", color = MaterialTheme.colorScheme.onPrimary,
-                        fontWeight = FontWeight.Bold)
-                }
+                com.aubeetoilee.aubevideo.ui.components.SunLogo(size = 30.dp)
                 Spacer(Modifier.width(8.dp))
-                Text("AubeVideo", style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.SemiBold)
+                Text(
+                    androidx.compose.ui.text.buildAnnotatedString {
+                        append("Aube")
+                        withStyle(
+                            androidx.compose.ui.text.SpanStyle(color = Color(0xFFF7B545))
+                        ) { append("Video") }
+                    },
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold,
+                )
             }
             IconButton(onClick = { navController.navigate("search") }) {
                 Icon(Icons.Filled.Search, contentDescription = "Rechercher")
