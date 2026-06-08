@@ -1024,6 +1024,8 @@ def banner(username):
 @app.route("/c/<username>")
 def channel(username):
     tab = request.args.get("tab", "videos")
+    sort = request.args.get("sort", "recent")
+    order = "v.views DESC, v.created_at DESC" if sort == "popular" else "v.created_at DESC"
     with db_cursor() as cur:
         cur.execute("SELECT * FROM users WHERE username = %s", (username,))
         user = cur.fetchone()
@@ -1034,7 +1036,7 @@ def channel(username):
                FROM videos v JOIN users u ON v.user_id = u.id
                WHERE v.user_id = %s AND v.visibility = 'public'
                      AND v.is_removed = FALSE
-               ORDER BY v.created_at DESC""",
+               ORDER BY """ + order,
             (user["id"],),
         )
         videos = cur.fetchall()
@@ -1060,7 +1062,7 @@ def channel(username):
             is_subscribed = cur.fetchone() is not None
     return render_template(
         "profile.html", user=user, videos=videos,
-        playlists=playlists, tab=tab,
+        playlists=playlists, tab=tab, sort=sort,
         is_subscribed=is_subscribed,
     )
 

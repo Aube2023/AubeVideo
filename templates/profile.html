@@ -41,6 +41,10 @@
 
 {% if tab == 'videos' %}
   {% if videos %}
+    <div class="chips chips-sort">
+      <a href="?tab=videos&sort=recent" class="chip {% if sort != 'popular' %}active{% endif %}">Récentes</a>
+      <a href="?tab=videos&sort=popular" class="chip {% if sort == 'popular' %}active{% endif %}">Populaires</a>
+    </div>
     <div class="video-grid">
       {% for v in videos %}
         <article class="video-card">

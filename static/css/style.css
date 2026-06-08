@@ -476,8 +476,17 @@ textarea { resize: vertical; }
   display: flex; align-items: center; gap: 12px; padding: 10px 16px;
   transition: background .12s; font-size: 14px;
 }
-.ss-item:hover { background: var(--bg-hover); }
-.ss-icon { color: var(--accent); width: 20px; }
+.ss-item:hover, .ss-item.active { background: var(--bg-hover); }
+.ss-icon { color: var(--accent); width: 20px; display: grid; place-items: center; flex: none; }
+.ss-item span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ss-item strong { color: var(--text); font-weight: 700; }
+.ss-search { font-weight: 500; }
+.ss-video { padding: 8px 16px; }
+.ss-thumb {
+  width: 64px; height: 36px; border-radius: 6px; object-fit: cover;
+  flex: none; background: var(--bg-card);
+}
+.search-suggest { max-height: 70vh; overflow-y: auto; }
 
 /* ========= CHAPTERS ========= */
 .chapters-list { margin-top: 12px; }

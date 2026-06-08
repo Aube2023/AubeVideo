@@ -5,6 +5,19 @@
 {% block og_description %}{{ (video.description or '')[:200] }}{% endblock %}
 {% block og_image %}{{ url_for('thumbnail', video_id=video.id, _external=True) }}{% endblock %}
 {% block description %}{{ (video.description or '')[:160] }}{% endblock %}
+{% block head %}
+  <meta property="og:video" content="{{ url_for('stream', video_id=video.id, _external=True) }}">
+  <meta property="og:video:secure_url" content="{{ url_for('stream', video_id=video.id, _external=True) }}">
+  <meta property="og:video:type" content="video/mp4">
+  {% if video.width and video.height %}
+  <meta property="og:video:width" content="{{ video.width }}">
+  <meta property="og:video:height" content="{{ video.height }}">
+  {% endif %}
+  <meta name="twitter:card" content="player">
+  <meta name="twitter:player" content="{{ url_for('embed', video_id=video.id, _external=True) }}">
+  <meta name="twitter:player:width" content="{{ video.width or 1280 }}">
+  <meta name="twitter:player:height" content="{{ video.height or 720 }}">
+{% endblock %}
 {% block content %}
 
 <div class="watch-layout" id="watchLayout">

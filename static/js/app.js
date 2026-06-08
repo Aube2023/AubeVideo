@@ -536,25 +536,70 @@ const searchInput = document.getElementById('searchInput');
 const searchSuggest = document.getElementById('searchSuggest');
 let searchTimer;
 if (searchInput && searchSuggest) {
+  let sel = -1; // index sélectionné au clavier
+
+  function highlight(text, q) {
+    const i = text.toLowerCase().indexOf(q.toLowerCase());
+    if (i < 0) return escapeHtml(text);
+    return escapeHtml(text.slice(0, i)) +
+      '<strong>' + escapeHtml(text.slice(i, i + q.length)) + '</strong>' +
+      escapeHtml(text.slice(i + q.length));
+  }
+
+  function render(items, q) {
+    const searchIcon = '<svg viewBox="0 0 24 24" width="16" height="16"><path fill="currentColor" d="M15.5 14h-.79l-.28-.27a6.5 6.5 0 1 0-.7.7l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0A4.5 4.5 0 1 1 14 9.5 4.5 4.5 0 0 1 9.5 14z"/></svg>';
+    const chanIcon = '<svg viewBox="0 0 24 24" width="16" height="16"><path fill="currentColor" d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/></svg>';
+    let html = `<a href="/search?q=${encodeURIComponent(q)}" class="ss-item ss-search" data-i="0">
+      <span class="ss-icon">${searchIcon}</span><span>Rechercher « ${escapeHtml(q)} »</span></a>`;
+    items.forEach((it, n) => {
+      const i = n + 1;
+      if (it.kind === 'channel') {
+        html += `<a href="/c/${encodeURIComponent(it.username)}" class="ss-item" data-i="${i}">
+          <span class="ss-icon">${chanIcon}</span><span>${highlight(it.text, q)}</span></a>`;
+      } else {
+        html += `<a href="/watch/${encodeURIComponent(it.id)}" class="ss-item ss-video" data-i="${i}">
+          <img class="ss-thumb" src="/thumb/${encodeURIComponent(it.id)}" alt="" loading="lazy">
+          <span>${highlight(it.text, q)}</span></a>`;
+      }
+    });
+    searchSuggest.innerHTML = html;
+    searchSuggest.classList.add('open');
+    sel = -1;
+  }
+
+  function setSel(next) {
+    const items = searchSuggest.querySelectorAll('.ss-item');
+    if (!items.length) return;
+    if (sel >= 0 && items[sel]) items[sel].classList.remove('active');
+    sel = (next + items.length) % items.length;
+    items[sel].classList.add('active');
+    items[sel].scrollIntoView({ block: 'nearest' });
+  }
+
   searchInput.addEventListener('input', () => {
     clearTimeout(searchTimer);
     const q = searchInput.value.trim();
     if (q.length < 2) { searchSuggest.innerHTML = ''; searchSuggest.classList.remove('open'); return; }
     searchTimer = setTimeout(async () => {
-      const r = await fetch('/api/suggest?q=' + encodeURIComponent(q));
-      if (!r.ok) return;
-      const items = await r.json();
-      if (!items.length) { searchSuggest.innerHTML = ''; searchSuggest.classList.remove('open'); return; }
-      searchSuggest.innerHTML = items.map(it => {
-        const link = it.kind === 'channel'
-          ? `/c/${encodeURIComponent(it.username)}`
-          : `/watch/${encodeURIComponent(it.id)}`;
-        const icon = it.kind === 'channel' ? '<svg viewBox="0 0 24 24" width="16" height="16"><path fill="currentColor" d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/></svg>' : '<svg viewBox="0 0 24 24" width="16" height="16"><path fill="currentColor" d="M8 5v14l11-7z"/></svg>';
-        return `<a href="${link}" class="ss-item"><span class="ss-icon">${icon}</span><span>${escapeHtml(it.text)}</span></a>`;
-      }).join('');
-      searchSuggest.classList.add('open');
+      try {
+        const r = await fetch('/api/suggest?q=' + encodeURIComponent(q));
+        if (!r.ok) return;
+        const items = await r.json();
+        render(items, q);
+      } catch (_) {}
     }, 150);
   });
+
+  searchInput.addEventListener('keydown', (e) => {
+    if (!searchSuggest.classList.contains('open')) return;
+    if (e.key === 'ArrowDown') { e.preventDefault(); setSel(sel + 1); }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); setSel(sel - 1); }
+    else if (e.key === 'Enter') {
+      const active = searchSuggest.querySelector('.ss-item.active');
+      if (active) { e.preventDefault(); window.location.href = active.getAttribute('href'); }
+    } else if (e.key === 'Escape') { searchSuggest.classList.remove('open'); }
+  });
+
   searchInput.addEventListener('blur', () => setTimeout(() => searchSuggest.classList.remove('open'), 200));
   searchInput.addEventListener('focus', () => { if (searchSuggest.innerHTML) searchSuggest.classList.add('open'); });
 }
