@@ -314,3 +314,52 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 }
 .cookie-banner button:hover { background: var(--accent-hover); }
 .cookie-banner[hidden] { display: none; }
+
+/* ===== Identité de marque : « Video » en or (cohérence avec l'app mobile) ===== */
+.brand-accent { color: #f7b545 !important; }
+
+/* ===== Bannière d'accueil (visiteurs) — ciel d'aube comme le login mobile ===== */
+.home-hero {
+  position: relative; border-radius: 18px; overflow: hidden;
+  margin: 4px 0 20px; padding: 48px 32px;
+  display: flex; align-items: center; justify-content: center; text-align: center;
+}
+.home-hero-bg {
+  position: absolute; inset: 0; z-index: 0;
+  background:
+    radial-gradient(120% 140% at 78% 18%, rgba(247,181,69,.30), transparent 55%),
+    linear-gradient(160deg, #0d1626 0%, #16243f 55%, #1e3458 100%);
+}
+.home-hero-inner { position: relative; z-index: 1; max-width: 640px; }
+.home-hero-logo {
+  width: 72px; height: 72px; margin: 0 auto 14px;
+  filter: drop-shadow(0 4px 18px rgba(247,181,69,.45));
+}
+.home-hero-title {
+  font-size: clamp(26px, 4vw, 40px); font-weight: 800; letter-spacing: -.5px;
+  color: #fff; margin-bottom: 10px;
+}
+.home-hero-title span { color: #f7b545; }
+.home-hero-sub { color: #c3d0e6; font-size: 16px; line-height: 1.55; margin-bottom: 24px; }
+.home-hero-actions { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; }
+.home-hero-actions .btn { padding: 11px 24px; font-size: 15px; font-weight: 600; }
+.btn-ghost-light {
+  background: rgba(255,255,255,.10); color: #fff;
+  border: 1px solid rgba(255,255,255,.35); border-radius: 20px;
+  transition: background .15s, border-color .15s;
+}
+.btn-ghost-light:hover { background: rgba(255,255,255,.20); border-color: rgba(255,255,255,.6); }
+
+/* ===== Bouton « retour en haut » ===== */
+.back-to-top {
+  position: fixed; bottom: 24px; right: 24px; z-index: 150;
+  width: 46px; height: 46px; border-radius: 50%;
+  display: grid; place-items: center;
+  background: var(--bg-elev); color: var(--text);
+  border: 1px solid var(--border); box-shadow: 0 4px 16px rgba(0,0,0,.35);
+  opacity: 0; transform: translateY(12px) scale(.9); pointer-events: none;
+  transition: opacity .2s ease, transform .2s ease, background .15s;
+}
+.back-to-top.show { opacity: 1; transform: translateY(0) scale(1); pointer-events: auto; }
+.back-to-top:hover { background: var(--bg-hover); }
+@media (max-width: 640px) { .back-to-top { bottom: 76px; } }

@@ -2,6 +2,22 @@
 {% block title %}{{ title or "Accueil" }} — AubeVideo{% endblock %}
 {% block content %}
 
+{# ----- Bannière d'accueil (visiteurs non connectés, page principale) ----- #}
+{% if not current_user and active_category == 'Toutes' and (page or 1) == 1 %}
+  <section class="home-hero">
+    <div class="home-hero-bg" aria-hidden="true"></div>
+    <div class="home-hero-inner">
+      <img src="{{ url_for('static', filename='img/logo.svg') }}" alt="" class="home-hero-logo">
+      <h1 class="home-hero-title">Bienvenue sur <span>AubeVideo</span></h1>
+      <p class="home-hero-sub">La plateforme vidéo souveraine de L'Aube Étoilée. Regardez, partagez, créez.</p>
+      <div class="home-hero-actions">
+        <a href="{{ url_for('login') }}" class="btn btn-primary">Se connecter</a>
+        <a href="{{ url_for('register') }}" class="btn btn-ghost-light">Créer un compte</a>
+      </div>
+    </div>
+  </section>
+{% endif %}
+
 <div class="chips">
   <a href="{{ url_for('home') }}" class="chip {% if active_category=='Toutes' %}active{% endif %}">Toutes</a>
   {% if current_user %}
