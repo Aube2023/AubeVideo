@@ -27,6 +27,7 @@
             android:name=".MainActivity"
             android:exported="true"
             android:configChanges="orientation|screenSize|smallestScreenSize|keyboardHidden|screenLayout|uiMode|density"
+            android:supportsPictureInPicture="true"
             android:windowSoftInputMode="adjustResize"
             android:theme="@style/Theme.AubeVideo.Splash">
             <intent-filter>

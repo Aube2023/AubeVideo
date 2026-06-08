@@ -71,8 +71,9 @@ fun AppNavigation(app: AubeVideoApplication) {
 
     // Lecteur vidéo en overlay (façon YouTube) : il survit à la navigation,
     // réduit en mini-lecteur au-dessus de la barre d'onglets.
-    var watchId by remember { mutableStateOf<Int?>(null) }
-    var watchMinimized by remember { mutableStateOf(false) }
+    // État porté par WatchSession pour que MainActivity (PiP) y accède.
+    val watchId = com.aubeetoilee.aubevideo.WatchSession.videoId
+    val watchMinimized = com.aubeetoilee.aubevideo.WatchSession.minimized
 
     Box(Modifier.fillMaxSize()) {
     Scaffold(
@@ -126,8 +127,7 @@ fun AppNavigation(app: AubeVideoApplication) {
                     // Redirige vers l'overlay : la vidéo s'ouvre par-dessus la navigation
                     val id = entry.arguments?.getString("id")?.toIntOrNull() ?: 0
                     LaunchedEffect(id) {
-                        watchId = id
-                        watchMinimized = false
+                        com.aubeetoilee.aubevideo.WatchSession.open(id)
                         navController.popBackStack()
                     }
                 }
@@ -143,7 +143,8 @@ fun AppNavigation(app: AubeVideoApplication) {
     // Overlay vidéo : reste composé même réduit pour que la lecture continue.
     // Un seul point de composition (le lecteur survit au passage plein ↔ mini).
     watchId?.let { id ->
-        val overlayModifier = if (watchMinimized) {
+        val inPip = com.aubeetoilee.aubevideo.WatchSession.inPip
+        val overlayModifier = if (watchMinimized && !inPip) {
             Modifier
                 .align(Alignment.BottomCenter)
                 .navigationBarsPadding()
@@ -155,10 +156,10 @@ fun AppNavigation(app: AubeVideoApplication) {
             WatchScreen(
                 app = app, navController = navController, videoId = id,
                 minimized = watchMinimized,
-                onMinimize = { watchMinimized = true },
-                onExpand = { watchMinimized = false },
-                onClose = { watchId = null },
-                onOpenVideo = { newId -> watchId = newId },
+                onMinimize = { com.aubeetoilee.aubevideo.WatchSession.minimized = true },
+                onExpand = { com.aubeetoilee.aubevideo.WatchSession.minimized = false },
+                onClose = { com.aubeetoilee.aubevideo.WatchSession.close() },
+                onOpenVideo = { newId -> com.aubeetoilee.aubevideo.WatchSession.open(newId) },
             )
         }
     }

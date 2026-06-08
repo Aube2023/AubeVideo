@@ -121,6 +121,15 @@ fun WatchScreen(
     val player = remember(videoId) {
         ExoPlayer.Builder(ctx).build().apply { playWhenReady = true }
     }
+    // Expose le lecteur courant pour le Picture-in-Picture (MainActivity)
+    DisposableEffect(player) {
+        com.aubeetoilee.aubevideo.WatchSession.player = player
+        onDispose {
+            if (com.aubeetoilee.aubevideo.WatchSession.player === player) {
+                com.aubeetoilee.aubevideo.WatchSession.player = null
+            }
+        }
+    }
     DisposableEffect(videoId) {
         onDispose {
             player.release()
@@ -172,6 +181,22 @@ fun WatchScreen(
             val secs = (player.currentPosition / 1000).toInt()
             if (secs > 0) runCatching { app.network.api.saveProgress(videoId, ProgressBody(secs)) }
         }
+    }
+
+    // Mode Picture-in-Picture : uniquement la surface vidéo, sans aucun contrôle
+    if (com.aubeetoilee.aubevideo.WatchSession.inPip) {
+        androidx.compose.ui.viewinterop.AndroidView(
+            factory = { c ->
+                androidx.media3.ui.PlayerView(c).apply {
+                    useController = false
+                    setBackgroundColor(android.graphics.Color.BLACK)
+                }
+            },
+            update = { it.player = player },
+            onRelease = { it.player = null },
+            modifier = Modifier.fillMaxSize().background(Color.Black),
+        )
+        return
     }
 
     // Mode réduit : mini-lecteur en bas (la vidéo continue de jouer)
