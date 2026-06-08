@@ -20,7 +20,12 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.material.icons.filled.AddBox
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.Pause
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.PlaylistAdd
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.ThumbDown
@@ -48,6 +53,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -71,7 +77,16 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 @Composable
-fun WatchScreen(app: AubeVideoApplication, navController: NavController, videoId: Int) {
+fun WatchScreen(
+    app: AubeVideoApplication,
+    navController: NavController,
+    videoId: Int,
+    minimized: Boolean = false,
+    onMinimize: () -> Unit = {},
+    onExpand: () -> Unit = {},
+    onClose: () -> Unit = {},
+    onOpenVideo: (Int) -> Unit = {},
+) {
     val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
     var video by remember { mutableStateOf<VideoDto?>(null) }
@@ -159,13 +174,31 @@ fun WatchScreen(app: AubeVideoApplication, navController: NavController, videoId
         }
     }
 
+    // Mode réduit : mini-lecteur en bas (la vidéo continue de jouer)
+    if (minimized) {
+        MiniPlayerBar(
+            player = player,
+            title = video?.title ?: "Chargement…",
+            onExpand = onExpand,
+            onClose = onClose,
+        )
+        return
+    }
+
+    // Retour matériel en plein écran : réduit la vidéo au lieu de quitter
+    androidx.activity.compose.BackHandler(enabled = !fullscreen) { onMinimize() }
+
     if (loading && video == null) {
-        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+        Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background),
+            contentAlignment = Alignment.Center) {
             CircularProgressIndicator()
         }
         return
     }
-    val v = video ?: return Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+    val v = video ?: return Box(
+        Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background),
+        contentAlignment = Alignment.Center,
+    ) {
         Text(error ?: "Vidéo introuvable", color = MaterialTheme.colorScheme.error)
     }
 
@@ -179,18 +212,28 @@ fun WatchScreen(app: AubeVideoApplication, navController: NavController, videoId
         return
     }
 
-    LazyColumn(Modifier.fillMaxSize()) {
+    LazyColumn(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
         item {
-            Box {
+            // Glisser vers le bas sur le lecteur → mini-lecteur (comme YouTube)
+            var dragTotal by remember { mutableStateOf(0f) }
+            Box(
+                Modifier.pointerInput(Unit) {
+                    detectVerticalDragGestures(
+                        onDragStart = { dragTotal = 0f },
+                        onVerticalDrag = { _, delta -> dragTotal += delta },
+                        onDragEnd = { if (dragTotal > 120f) onMinimize() },
+                    )
+                }
+            ) {
                 VideoPlayer(
                     player = player,
                     onToggleFullscreen = { setFullscreen(true) },
                 )
                 IconButton(
-                    onClick = { navController.popBackStack() },
+                    onClick = onMinimize,
                     modifier = Modifier.padding(8.dp),
                 ) {
-                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Retour",
+                    Icon(Icons.Filled.KeyboardArrowDown, contentDescription = "Réduire",
                         tint = Color.White)
                 }
             }
@@ -215,7 +258,15 @@ fun WatchScreen(app: AubeVideoApplication, navController: NavController, videoId
         }
 
         // Channel header
-        item { ChannelHeader(v = v, app = app, onUpdate = { video = it }, navController = navController) }
+        item {
+            ChannelHeader(
+                v = v, app = app, onUpdate = { video = it },
+                onOpenChannel = { username ->
+                    onMinimize() // la vidéo continue en mini-lecteur
+                    navController.navigate("channel/$username")
+                },
+            )
+        }
 
         // Description (collapsible)
         if (!v.description.isNullOrBlank()) {
@@ -315,9 +366,60 @@ fun WatchScreen(app: AubeVideoApplication, navController: NavController, videoId
         items(suggestions, key = { "s-${it.id}" }) { s ->
             VideoCard(
                 video = s,
-                onClick = { navController.navigate("watch/${s.id}") },
+                onClick = { onOpenVideo(s.id) },
                 modifier = Modifier.padding(horizontal = 16.dp),
             )
+        }
+    }
+}
+
+/** Mini-lecteur en bas d'écran : la vidéo continue, on peut naviguer ailleurs. */
+@Composable
+private fun MiniPlayerBar(
+    player: ExoPlayer,
+    title: String,
+    onExpand: () -> Unit,
+    onClose: () -> Unit,
+) {
+    var playing by remember { mutableStateOf(player.isPlaying || player.playWhenReady) }
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .background(MaterialTheme.colorScheme.surfaceVariant)
+            .clickable(onClick = onExpand),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        // Surface vidéo réduite (sans contrôles)
+        androidx.compose.ui.viewinterop.AndroidView(
+            factory = { c ->
+                androidx.media3.ui.PlayerView(c).apply {
+                    useController = false
+                    resizeMode = androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_ZOOM
+                }
+            },
+            update = { it.player = player },
+            onRelease = { it.player = null },
+            modifier = Modifier.width(110.dp).height(62.dp),
+        )
+        Spacer(Modifier.width(10.dp))
+        Text(
+            title,
+            style = MaterialTheme.typography.bodyMedium,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f),
+        )
+        IconButton(onClick = {
+            if (player.isPlaying) { player.pause(); playing = false }
+            else { player.play(); playing = true }
+        }) {
+            Icon(
+                if (playing) Icons.Filled.Pause else Icons.Filled.PlayArrow,
+                contentDescription = if (playing) "Pause" else "Lecture",
+            )
+        }
+        IconButton(onClick = onClose) {
+            Icon(Icons.Filled.Close, contentDescription = "Fermer")
         }
     }
 }
@@ -430,7 +532,7 @@ private fun ChannelHeader(
     v: VideoDto,
     app: AubeVideoApplication,
     onUpdate: (VideoDto) -> Unit,
-    navController: NavController,
+    onOpenChannel: (String) -> Unit,
 ) {
     val scope = rememberCoroutineScope()
     val ch = v.channel ?: return
@@ -451,7 +553,7 @@ private fun ChannelHeader(
                 .size(40.dp)
                 .clip(CircleShape)
                 .background(MaterialTheme.colorScheme.surfaceVariant)
-                .clickable { navController.navigate("channel/${ch.username}") },
+                .clickable { onOpenChannel(ch.username) },
         )
         Spacer(Modifier.width(12.dp))
         Column(Modifier.weight(1f)) {

@@ -1,6 +1,7 @@
 package com.aubeetoilee.aubevideo.ui.nav
 
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
@@ -20,6 +21,12 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.material3.Text
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.unit.dp
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
@@ -62,6 +69,12 @@ fun AppNavigation(app: AubeVideoApplication) {
     val currentRoute = backStack?.destination?.route
     val showTabs = currentRoute in tabs.map { it.route } || currentRoute == "library"
 
+    // Lecteur vidéo en overlay (façon YouTube) : il survit à la navigation,
+    // réduit en mini-lecteur au-dessus de la barre d'onglets.
+    var watchId by remember { mutableStateOf<Int?>(null) }
+    var watchMinimized by remember { mutableStateOf(false) }
+
+    Box(Modifier.fillMaxSize()) {
     Scaffold(
         bottomBar = {
             if (showTabs && authenticated) {
@@ -110,8 +123,13 @@ fun AppNavigation(app: AubeVideoApplication) {
                 composable(TabRoute.Library.route) { LibraryScreen(app, navController) }
                 composable(TabRoute.Search.route) { SearchScreen(app, navController) }
                 composable("watch/{id}") { entry ->
+                    // Redirige vers l'overlay : la vidéo s'ouvre par-dessus la navigation
                     val id = entry.arguments?.getString("id")?.toIntOrNull() ?: 0
-                    WatchScreen(app = app, navController = navController, videoId = id)
+                    LaunchedEffect(id) {
+                        watchId = id
+                        watchMinimized = false
+                        navController.popBackStack()
+                    }
                 }
                 composable("channel/{username}") { entry ->
                     val u = entry.arguments?.getString("username").orEmpty()
@@ -120,5 +138,29 @@ fun AppNavigation(app: AubeVideoApplication) {
                 composable("settings") { SettingsScreen(app, navController) }
             }
         }
+    }
+
+    // Overlay vidéo : reste composé même réduit pour que la lecture continue.
+    // Un seul point de composition (le lecteur survit au passage plein ↔ mini).
+    watchId?.let { id ->
+        val overlayModifier = if (watchMinimized) {
+            Modifier
+                .align(Alignment.BottomCenter)
+                .navigationBarsPadding()
+                .padding(bottom = if (showTabs) 80.dp else 0.dp)
+        } else {
+            Modifier.fillMaxSize()
+        }
+        Box(overlayModifier) {
+            WatchScreen(
+                app = app, navController = navController, videoId = id,
+                minimized = watchMinimized,
+                onMinimize = { watchMinimized = true },
+                onExpand = { watchMinimized = false },
+                onClose = { watchId = null },
+                onOpenVideo = { newId -> watchId = newId },
+            )
+        }
+    }
     }
 }
