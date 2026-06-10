@@ -227,6 +227,27 @@ app.jinja_env.filters["timeago"] = time_ago
 app.jinja_env.filters["duration"] = format_duration
 
 
+def _asset_version():
+    """Cache-busting : mtime le plus récent des assets, figé au démarrage.
+
+    Change à chaque déploiement => les navigateurs rechargent css/js à jour
+    même si nginx les sert avec un cache long.
+    """
+    newest = 0
+    for sub in ("css", "js", "img"):
+        d = BASE_DIR / "static" / sub
+        if d.is_dir():
+            for f in d.iterdir():
+                try:
+                    newest = max(newest, int(f.stat().st_mtime))
+                except OSError:
+                    pass
+    return str(newest or int(time.time()))
+
+
+app.jinja_env.globals["ASSET_V"] = _asset_version()
+
+
 CATEGORIES = [
     "Général", "Musique", "Gaming", "Actualités", "Sport",
     "Éducation", "Science", "Humour", "Film", "Voyage",

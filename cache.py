@@ -19,8 +19,12 @@ except Exception:
 _mem = {}
 _lock = threading.Lock()
 
+# Le Redis du serveur est partagé entre services : on namespace nos clés.
+_PREFIX = os.environ.get("AUBEVIDEO_CACHE_PREFIX", "aubevideo:")
+
 
 def get(key):
+    key = _PREFIX + key
     if _REDIS_OK:
         try:
             v = _r.get(key)
@@ -38,6 +42,7 @@ def get(key):
 
 
 def set(key, value, ttl=60):
+    key = _PREFIX + key
     if _REDIS_OK:
         try:
             _r.setex(key, ttl, json.dumps(value, default=str))
@@ -49,6 +54,7 @@ def set(key, value, ttl=60):
 
 
 def delete(key):
+    key = _PREFIX + key
     if _REDIS_OK:
         try:
             _r.delete(key)
