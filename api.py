@@ -898,18 +898,24 @@ def watch_later_toggle(video_id):
 def history_list():
     page, per, offset = _page(per_default=30)
     with db_cursor() as cur:
+        # Dédup + tri + pagination côté SQL (évite de charger tout l'historique).
         cur.execute(
-            """SELECT DISTINCT ON (v.id) v.*, u.username, u.display_name, u.avatar_url,
-                       u.subscriber_count, h.watched_at, h.progress_seconds
-               FROM watch_history h JOIN videos v ON h.video_id = v.id
+            """SELECT v.*, u.username, u.display_name, u.avatar_url,
+                      u.subscriber_count, h.watched_at, h.progress_seconds
+               FROM (
+                   SELECT DISTINCT ON (video_id) video_id, watched_at, progress_seconds
+                   FROM watch_history
+                   WHERE user_id = %s
+                   ORDER BY video_id, watched_at DESC
+               ) h
+               JOIN videos v ON h.video_id = v.id
                JOIN users u ON v.user_id = u.id
-               WHERE h.user_id = %s AND v.is_removed = FALSE
-               ORDER BY v.id, h.watched_at DESC""",
-            (g.user_id,),
+               WHERE v.is_removed = FALSE
+               ORDER BY h.watched_at DESC
+               LIMIT %s OFFSET %s""",
+            (g.user_id, per, offset),
         )
         rows = cur.fetchall()
-    rows.sort(key=lambda r: r.get("watched_at") or datetime.min, reverse=True)
-    rows = rows[offset:offset + per]
     out = []
     for v in rows:
         d = video_dto(v)
@@ -1154,7 +1160,7 @@ def my_videos():
     with db_cursor() as cur:
         cur.execute(
             """SELECT * FROM videos WHERE user_id = %s AND is_removed = FALSE
-               ORDER BY created_at DESC""",
+               ORDER BY created_at DESC LIMIT 500""",
             (g.user_id,),
         )
         rows = cur.fetchall()

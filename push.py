@@ -6,6 +6,7 @@ import os
 import json
 import base64
 import secrets
+import threading
 from db import db_cursor
 
 try:
@@ -44,7 +45,44 @@ def remove_subscription(user_id, endpoint):
         )
 
 
+def _send_batch(subs, data):
+    """Boucle d'envoi synchrone — à exécuter hors requête HTTP (thread)."""
+    sent = 0
+    dead = []
+    for s in subs:
+        try:
+            webpush(
+                subscription_info={
+                    "endpoint": s["endpoint"],
+                    "keys": {"p256dh": s["p256dh"], "auth": s["auth"]},
+                },
+                data=data,
+                vapid_private_key=VAPID_PRIVATE,
+                vapid_claims={"sub": VAPID_CLAIMS_EMAIL},
+            )
+            sent += 1
+        except WebPushException as e:
+            if getattr(e.response, "status_code", None) in (404, 410):
+                dead.append(s["endpoint"])
+        except Exception:
+            pass
+    if dead:  # purge groupée des abonnements expirés (1 requête au lieu de N)
+        try:
+            with db_cursor(commit=True) as cur:
+                cur.execute(
+                    "DELETE FROM push_subscriptions WHERE endpoint = ANY(%s)",
+                    (dead,),
+                )
+        except Exception:
+            pass
+    return sent
+
+
 def send_to_user(user_id, title, body, url="/"):
+    """Envoie les notifications en arrière-plan (webpush = HTTP bloquant).
+
+    Retourne le nombre d'abonnements ciblés (l'envoi réel est asynchrone).
+    """
     if not PYWEBPUSH_OK or not VAPID_PRIVATE:
         return 0
     with db_cursor() as cur:
@@ -53,26 +91,8 @@ def send_to_user(user_id, title, body, url="/"):
             (user_id,),
         )
         subs = cur.fetchall()
-    sent = 0
-    for s in subs:
-        try:
-            webpush(
-                subscription_info={
-                    "endpoint": s["endpoint"],
-                    "keys": {"p256dh": s["p256dh"], "auth": s["auth"]},
-                },
-                data=json.dumps({"title": title, "body": body, "url": url}),
-                vapid_private_key=VAPID_PRIVATE,
-                vapid_claims={"sub": VAPID_CLAIMS_EMAIL},
-            )
-            sent += 1
-        except WebPushException as e:
-            if getattr(e.response, "status_code", None) in (404, 410):
-                with db_cursor(commit=True) as cur:
-                    cur.execute(
-                        "DELETE FROM push_subscriptions WHERE endpoint = %s",
-                        (s["endpoint"],),
-                    )
-        except Exception:
-            pass
-    return sent
+    if not subs:
+        return 0
+    data = json.dumps({"title": title, "body": body, "url": url})
+    threading.Thread(target=_send_batch, args=(subs, data), daemon=True).start()
+    return len(subs)

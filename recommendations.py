@@ -7,7 +7,8 @@ Hybride simple :
 - "Créateurs émergents" : nouvelles chaînes < 30j avec engagement élevé
 - "Communauté" : abonnements + chaînes similaires
 """
-from datetime import datetime
+import time
+import threading
 from typing import Any, Dict, List
 
 from db import db_cursor
@@ -71,22 +72,25 @@ def continue_watching(user_id: int, limit: int = 12) -> List[Dict[str, Any]]:
     """Vidéos en cours (progress > 30s et < 90% de la durée)."""
     with db_cursor() as cur:
         cur.execute(
-            """SELECT DISTINCT ON (v.id) v.*, u.username, u.display_name,
-                       u.avatar_url, u.subscriber_count,
-                       h.progress_seconds, h.watched_at
-               FROM watch_history h JOIN videos v ON h.video_id = v.id
+            """SELECT v.*, u.username, u.display_name,
+                      u.avatar_url, u.subscriber_count,
+                      h.progress_seconds, h.watched_at
+               FROM (
+                   SELECT DISTINCT ON (video_id) video_id, progress_seconds, watched_at
+                   FROM watch_history
+                   WHERE user_id = %s AND progress_seconds > 30
+                   ORDER BY video_id, watched_at DESC
+               ) h
+               JOIN videos v ON h.video_id = v.id
                JOIN users u ON v.user_id = u.id
-               WHERE h.user_id = %s
-                 AND h.progress_seconds > 30
+               WHERE v.is_removed = FALSE
                  AND v.duration > 60
                  AND h.progress_seconds < v.duration * 0.9
-                 AND v.is_removed = FALSE
-               ORDER BY v.id, h.watched_at DESC""",
-            (user_id,),
+               ORDER BY h.watched_at DESC
+               LIMIT %s""",
+            (user_id, limit),
         )
-        rows = _rows_to_dicts(cur.fetchall())
-        rows.sort(key=lambda r: r.get("watched_at") or datetime.min, reverse=True)
-        return rows[:limit]
+        return _rows_to_dicts(cur.fetchall())
 
 
 def emerging_creators(limit: int = 10) -> List[Dict[str, Any]]:
@@ -130,7 +134,32 @@ def from_subscriptions(user_id: int, limit: int = 12) -> List[Dict[str, Any]]:
         return _rows_to_dicts(cur.fetchall())
 
 
+# Cache in-process des sections home (les rows contiennent des datetime :
+# on évite la sérialisation JSON/Redis qui casserait les filtres Jinja).
+_SECTIONS_TTL = 60
+_sections_cache: Dict[int, tuple] = {}
+_sections_lock = threading.Lock()
+
+
 def discover_sections(user_id: int | None) -> List[Dict[str, Any]]:
+    """Comme _build_sections, avec cache 60 s par utilisateur (la home est chaude)."""
+    key = user_id or 0
+    now = time.time()
+    with _sections_lock:
+        ent = _sections_cache.get(key)
+        if ent and ent[0] > now:
+            return ent[1]
+    sections = _build_sections(user_id)
+    with _sections_lock:
+        if len(_sections_cache) > 500:
+            expired = [k for k, (exp, _) in _sections_cache.items() if exp <= now]
+            for k in expired:
+                _sections_cache.pop(k, None)
+        _sections_cache[key] = (now + _SECTIONS_TTL, sections)
+    return sections
+
+
+def _build_sections(user_id: int | None) -> List[Dict[str, Any]]:
     """Construit toutes les sections de découverte de la home (best-effort).
 
     Renvoie une liste de {key, title, videos: [...]}.

@@ -770,7 +770,7 @@ def watch(video_id):
             session["viewed"] = viewed
             session.modified = True
             try:
-                analytics.log_view(video_id)
+                analytics.log_view(video_id, cur)
             except Exception:
                 pass
 
@@ -818,7 +818,8 @@ def watch(video_id):
                       (SELECT COUNT(*) FROM comments r WHERE r.parent_id = c.id) AS reply_count
                FROM comments c JOIN users u ON c.user_id = u.id
                WHERE c.video_id = %s AND c.parent_id IS NULL AND c.is_removed = FALSE
-               ORDER BY c.is_pinned DESC, c.likes_count DESC, c.created_at DESC""",
+               ORDER BY c.is_pinned DESC, c.likes_count DESC, c.created_at DESC
+               LIMIT 200""",
             (video_id,),
         )
         comments = cur.fetchall()
@@ -1074,7 +1075,7 @@ def studio():
     with db_cursor() as cur:
         cur.execute(
             """SELECT * FROM videos WHERE user_id = %s AND is_removed = FALSE
-               ORDER BY created_at DESC""",
+               ORDER BY created_at DESC LIMIT 500""",
             (uid,),
         )
         videos = cur.fetchall()
@@ -1713,12 +1714,15 @@ def create_report():
 @admin_required
 def admin_home():
     with db_cursor() as cur:
-        cur.execute("SELECT COUNT(*) AS c FROM users")
-        users_count = cur.fetchone()["c"]
-        cur.execute("SELECT COUNT(*) AS c FROM videos WHERE is_removed = FALSE")
-        videos_count = cur.fetchone()["c"]
-        cur.execute("SELECT COUNT(*) AS c FROM reports WHERE status = 'pending'")
-        pending_reports = cur.fetchone()["c"]
+        cur.execute(
+            """SELECT (SELECT COUNT(*) FROM users) AS users_count,
+                      (SELECT COUNT(*) FROM videos WHERE is_removed = FALSE) AS videos_count,
+                      (SELECT COUNT(*) FROM reports WHERE status = 'pending') AS pending_reports"""
+        )
+        counts = cur.fetchone()
+        users_count = counts["users_count"]
+        videos_count = counts["videos_count"]
+        pending_reports = counts["pending_reports"]
         cur.execute(
             """SELECT r.*, u.username AS reporter
                FROM reports r JOIN users u ON r.reporter_id = u.id

@@ -315,3 +315,23 @@ CREATE INDEX IF NOT EXISTS idx_videos_search ON videos USING GIN (search_vector)
 
 -- v7 : streaming adaptatif HLS (master.m3u8 généré au transcodage)
 ALTER TABLE videos ADD COLUMN IF NOT EXISTS hls_ready BOOLEAN DEFAULT FALSE;
+
+-- v8 : index de performance.
+-- Compteur de notifications non lues (affiché sur chaque page) : index partiel.
+CREATE INDEX IF NOT EXISTS idx_notif_unread ON notifications(user_id) WHERE is_read = FALSE;
+-- Flux principaux : home / tendances filtrent toujours public + non retiré.
+CREATE INDEX IF NOT EXISTS idx_videos_public_recent ON videos(created_at DESC)
+  WHERE visibility = 'public' AND is_removed = FALSE;
+-- Recherche de chaînes par sous-chaîne (ILIKE '%…%') : index trigram.
+-- pg_trgm est "trusted" (PG13+) ; si l'extension est indisponible, on ignore
+-- ces index sans faire échouer le reste de la migration.
+DO $$ BEGIN
+  CREATE EXTENSION IF NOT EXISTS pg_trgm;
+  CREATE INDEX IF NOT EXISTS idx_users_username_trgm ON users USING GIN (username gin_trgm_ops);
+  CREATE INDEX IF NOT EXISTS idx_users_display_trgm ON users USING GIN (display_name gin_trgm_ops);
+  CREATE INDEX IF NOT EXISTS idx_videos_title_trgm ON videos USING GIN (title gin_trgm_ops);
+EXCEPTION WHEN OTHERS THEN
+  RAISE NOTICE 'pg_trgm indisponible — index trigram ignorés';
+END $$;
+-- Historique : dédup par vidéo (DISTINCT ON video_id) côté SQL.
+CREATE INDEX IF NOT EXISTS idx_history_user_video ON watch_history(user_id, video_id, watched_at DESC);

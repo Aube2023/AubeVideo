@@ -3,15 +3,19 @@ from datetime import date, timedelta
 from db import db_cursor
 
 
-def log_view(video_id):
-    with db_cursor(commit=True) as cur:
-        cur.execute(
-            """INSERT INTO daily_views (video_id, date, views)
-               VALUES (%s, CURRENT_DATE, 1)
-               ON CONFLICT (video_id, date) DO UPDATE
-               SET views = daily_views.views + 1""",
-            (video_id,),
-        )
+_LOG_VIEW_SQL = """INSERT INTO daily_views (video_id, date, views)
+   VALUES (%s, CURRENT_DATE, 1)
+   ON CONFLICT (video_id, date) DO UPDATE
+   SET views = daily_views.views + 1"""
+
+
+def log_view(video_id, cur=None):
+    """Incrémente la vue du jour. Réutilise `cur` si fourni (évite une connexion)."""
+    if cur is not None:
+        cur.execute(_LOG_VIEW_SQL, (video_id,))
+        return
+    with db_cursor(commit=True) as c:
+        c.execute(_LOG_VIEW_SQL, (video_id,))
 
 
 def video_series(video_id, days=30):

@@ -1,7 +1,9 @@
 """AubeVideo - gestionnaire de connexion PostgreSQL + helpers de requêtes communes."""
 import os
+import threading
 import psycopg2
 import psycopg2.extras
+import psycopg2.pool
 from contextlib import contextmanager
 
 # DATABASE_URL prioritaire (Render / Railway / Fly / Heroku fournissent cette variable).
@@ -25,14 +27,15 @@ def normalize_visibility(value, default="public"):
     return value if value in VISIBILITIES else default
 
 
-def get_connection():
+def _connect_params():
+    """Renvoie (dsn, kwargs) pour psycopg2.connect / le pool."""
     if DATABASE_URL:
         # psycopg2 accepte directement l'URL postgres://… (gère le SSL via sslmode).
         dsn = DATABASE_URL
         if "sslmode=" not in dsn and DB_SSLMODE:
             sep = "&" if "?" in dsn else "?"
             dsn = f"{dsn}{sep}sslmode={DB_SSLMODE}"
-        return psycopg2.connect(dsn)
+        return dsn, {}
     kwargs = {
         "dbname": DB_NAME,
         "user": DB_USER,
@@ -43,12 +46,44 @@ def get_connection():
         kwargs["password"] = DB_PASS
     if DB_SSLMODE:
         kwargs["sslmode"] = DB_SSLMODE
-    return psycopg2.connect(**kwargs)
+    return None, kwargs
+
+
+def get_connection():
+    dsn, kwargs = _connect_params()
+    return psycopg2.connect(dsn, **kwargs) if dsn else psycopg2.connect(**kwargs)
+
+
+# Pool de connexions : évite d'ouvrir une connexion TCP/SSL à chaque requête.
+# Créé paresseusement (compatible gunicorn multi-process : un pool par worker).
+POOL_MIN = int(os.environ.get("AUBEVIDEO_DB_POOL_MIN", "1"))
+POOL_MAX = int(os.environ.get("AUBEVIDEO_DB_POOL_MAX", "10"))
+
+_pool = None
+_pool_lock = threading.Lock()
+
+
+def _get_pool():
+    global _pool
+    if _pool is None:
+        with _pool_lock:
+            if _pool is None:
+                dsn, kwargs = _connect_params()
+                if dsn:
+                    _pool = psycopg2.pool.ThreadedConnectionPool(POOL_MIN, POOL_MAX, dsn)
+                else:
+                    _pool = psycopg2.pool.ThreadedConnectionPool(POOL_MIN, POOL_MAX, **kwargs)
+    return _pool
 
 
 @contextmanager
 def db_cursor(commit=False, dict_cursor=True):
-    conn = get_connection()
+    pool = _get_pool()
+    conn = pool.getconn()
+    if conn.closed:  # connexion périmée rendue par le pool : on la remplace
+        pool.putconn(conn, close=True)
+        conn = pool.getconn()
+    broken = False
     cur = None
     try:
         cur = conn.cursor(
@@ -57,13 +92,23 @@ def db_cursor(commit=False, dict_cursor=True):
         yield cur
         if commit:
             conn.commit()
-    except Exception:
-        conn.rollback()
+        else:
+            conn.rollback()  # termine la transaction implicite avant retour au pool
+    except Exception as e:
+        broken = isinstance(e, (psycopg2.OperationalError, psycopg2.InterfaceError))
+        if not broken:
+            try:
+                conn.rollback()
+            except Exception:
+                broken = True
         raise
     finally:
-        if cur is not None:
-            cur.close()
-        conn.close()
+        if cur is not None and not conn.closed:
+            try:
+                cur.close()
+            except Exception:
+                pass
+        pool.putconn(conn, close=broken or conn.closed)
 
 
 def init_db(schema_path="schema.sql"):

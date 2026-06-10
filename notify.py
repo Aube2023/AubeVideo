@@ -1,5 +1,18 @@
 """AubeVideo - création et lecture des notifications."""
 from db import db_cursor
+import cache
+
+# Le compteur non-lu est affiché sur CHAQUE page HTML : on le met en cache
+# court (TTL) et on l'invalide à la création / lecture des notifications.
+_UNREAD_TTL = 30
+
+
+def _unread_key(user_id):
+    return f"notif_unread:{user_id}"
+
+
+def invalidate_unread(user_id):
+    cache.delete(_unread_key(user_id))
 
 
 def create_notification(cur, user_id, ntype, title, body="", link=""):
@@ -11,6 +24,7 @@ def create_notification(cur, user_id, ntype, title, body="", link=""):
            VALUES (%s, %s, %s, %s, %s)""",
         (user_id, ntype, title, body, link),
     )
+    invalidate_unread(user_id)
 
 
 def notify_subscribers_of_new_video(cur, channel_id, channel_name, video_id, video_title):
@@ -37,6 +51,7 @@ def notify_new_subscriber(cur, channel_id, subscriber_name, subscriber_username)
          f"{subscriber_name} s'est abonné à votre chaîne",
          f"/c/{subscriber_username}"),
     )
+    invalidate_unread(channel_id)
 
 
 def notify_new_comment(cur, video_owner_id, commenter_name, video_id, video_title, content):
@@ -49,15 +64,22 @@ def notify_new_comment(cur, video_owner_id, commenter_name, video_id, video_titl
          f"{video_title}: {content[:100]}",
          f"/watch/{video_id}"),
     )
+    invalidate_unread(video_owner_id)
 
 
 def unread_count(user_id):
+    key = _unread_key(user_id)
+    hit = cache.get(key)
+    if hit is not None:
+        return hit
     with db_cursor() as cur:
         cur.execute(
             "SELECT COUNT(*) AS c FROM notifications WHERE user_id = %s AND is_read = FALSE",
             (user_id,),
         )
-        return cur.fetchone()["c"]
+        n = cur.fetchone()["c"]
+    cache.set(key, n, ttl=_UNREAD_TTL)
+    return n
 
 
 def list_recent(user_id, limit=20):
@@ -76,3 +98,4 @@ def mark_all_read(user_id):
             "UPDATE notifications SET is_read = TRUE WHERE user_id = %s",
             (user_id,),
         )
+    invalidate_unread(user_id)
