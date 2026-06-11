@@ -2133,7 +2133,7 @@ def live_dashboard():
         is_live = cur.fetchone() is not None
     rtmp_base = os.environ.get("AUBEVIDEO_RTMP_URL", "rtmp://video.aubeetoilee.com/live")
     return render_template("live.html",
-                           stream_key=u["stream_key"],
+                           obs_key=f"{u['username']}?key={u['stream_key']}",
                            rtmp_base=rtmp_base,
                            is_live=is_live,
                            live_url=url_for("live_watch", username=u["username"]))
@@ -2143,27 +2143,27 @@ def live_dashboard():
 def live_callback():
     """Appelé par nginx-rtmp (localhost uniquement) : on_publish / on_publish_done.
 
-    on_publish : `name` = clé secrète → on répond 301 Location: <username>,
-    nginx-rtmp renomme le flux ; le HLS public est /hls/<username>.m3u8 et la
-    clé n'apparaît jamais côté spectateurs.
-    on_publish_done : `name` peut être la clé ou le username → on gère les deux.
+    On publie sous son nom de chaîne avec la clé en paramètre
+    (clé OBS = `<username>?key=<secret>`). Le flux HLS public est donc
+    /hls/<username>.m3u8 et la clé secrète n'y apparaît jamais.
     """
     if request.remote_addr != "127.0.0.1":
         abort(403)
     name = request.form.get("name", "")
+    key = request.form.get("key", "")
     action = request.form.get("call", "")  # publish / publish_done
     if not name:
         return "", 403
     with db_cursor(commit=True) as cur:
-        cur.execute(
-            "SELECT id, username, display_name FROM users"
-            " WHERE stream_key = %s OR username = %s",
-            (name, name),
-        )
-        u = cur.fetchone()
-        if not u:
-            return "", 403
         if action == "publish":
+            cur.execute(
+                "SELECT id, username, display_name FROM users"
+                " WHERE username = %s AND stream_key = %s AND is_banned = FALSE",
+                (name, key),
+            )
+            u = cur.fetchone()
+            if not u:
+                return "", 403
             # Un seul direct actif par chaîne : clore un éventuel orphelin.
             cur.execute(
                 """UPDATE live_streams SET status = 'ended', ended_at = NOW()
@@ -2185,17 +2185,15 @@ def live_callback():
                  f"/live/{u['username']}", u["id"]),
             )
             app.logger.info("Live démarré : %s", u["username"])
-            if name != u["username"]:
-                resp = Response("", 301)
-                resp.headers["Location"] = u["username"]
-                return resp
             return "", 200
+        # publish_done : clore le direct de la chaîne
         cur.execute(
             """UPDATE live_streams SET status = 'ended', ended_at = NOW()
-               WHERE user_id = %s AND status = 'live'""",
-            (u["id"],),
+               WHERE user_id = (SELECT id FROM users WHERE username = %s)
+                 AND status = 'live'""",
+            (name,),
         )
-        app.logger.info("Live terminé : %s", u["username"])
+        app.logger.info("Live terminé : %s", name)
     return "", 200
 
 

@@ -20,9 +20,9 @@
   </div>
   <div class="field">
     <span>Clé de diffusion (secret — ne partagez jamais)</span>
-    <input type="password" id="streamKey" readonly value="{{ stream_key }}">
+    <input type="password" id="streamKey" readonly value="{{ obs_key }}">
     <button class="btn-ghost" onclick="const e=document.getElementById('streamKey');e.type=e.type==='text'?'password':'text'">Voir</button>
-    <button class="btn-ghost" onclick="navigator.clipboard.writeText('{{ stream_key }}');this.textContent='✓ Copiée'">Copier</button>
+    <button class="btn-ghost" onclick="navigator.clipboard.writeText('{{ obs_key }}');this.textContent='✓ Copiée'">Copier</button>
   </div>
 
   <h2 class="section-h">Configuration OBS</h2>
