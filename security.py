@@ -89,6 +89,10 @@ def csrf_protect(app):
         # Stripe webhook signé : pas de CSRF (vérification dédiée côté handler)
         if request.path == "/stripe/webhook":
             return
+        # Callback nginx-rtmp (restreint à localhost + authentifié par la clé
+        # de stream côté handler) : pas de session navigateur => pas de CSRF
+        if request.path == "/api/live/callback":
+            return
         # Les endpoints de stream/thumb sont en GET donc OK.
         # Upload POST multipart -> token via form
         # JSON API session -> token via header

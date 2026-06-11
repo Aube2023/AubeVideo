@@ -5,6 +5,15 @@
   <h1>Diffusion en direct</h1>
   <p class="subtitle">Utilisez OBS Studio ou Streamlabs pour diffuser vers AubeVideo.</p>
 
+  {% if is_live %}
+  <div class="flash flash-success" style="position:static;margin:12px 0">
+    🔴 Vous êtes <strong>en direct</strong> — <a href="{{ live_url }}">voir votre direct</a>
+  </div>
+  {% endif %}
+  <p style="margin:8px 0">Votre page de direct publique :
+    <a href="{{ live_url }}"><code>{{ live_url }}</code></a>
+    (partagez ce lien à vos spectateurs)</p>
+
   <div class="field">
     <span>Serveur RTMP</span>
     <input type="text" readonly value="{{ rtmp_base }}">
@@ -24,9 +33,9 @@
     <li>Démarrer le streaming → vous apparaîtrez en direct sur votre chaîne</li>
   </ol>
 
-  <div class="flash flash-success" style="position:static;margin-top:20px">
-    Côté serveur : activez <code>nginx-rtmp-module</code> + <code>ffmpeg</code> pour HLS.
-    Callbacks <code>on_publish</code> / <code>on_publish_done</code> → <code>/api/live/callback</code>.
-  </div>
+  <p class="subtitle" style="margin-top:20px">
+    Le direct apparaît sur votre page publique après ~10 secondes (latence HLS).
+    Vos abonnés reçoivent une notification au démarrage.
+  </p>
 </div>
 {% endblock %}

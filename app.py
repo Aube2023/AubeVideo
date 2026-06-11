@@ -2114,47 +2114,137 @@ def stripe_webhook():
     return "", 400
 
 
-# ---------- Live streaming (skeleton) ----------
+# ---------- Live streaming (RTMP ingest via nginx-rtmp, lecture HLS) ----------
 @app.route("/studio/live")
 @login_required
 def live_dashboard():
     uid = session["user_id"]
     with db_cursor(commit=True) as cur:
-        cur.execute("SELECT stream_key FROM users WHERE id = %s", (uid,))
+        cur.execute("SELECT username, stream_key FROM users WHERE id = %s", (uid,))
         u = cur.fetchone()
         if not u["stream_key"]:
             key = uuid.uuid4().hex
             cur.execute("UPDATE users SET stream_key = %s WHERE id = %s", (key, uid))
-            u = {"stream_key": key}
+            u = {"username": u["username"], "stream_key": key}
+        cur.execute(
+            "SELECT 1 FROM live_streams WHERE user_id = %s AND status = 'live'",
+            (uid,),
+        )
+        is_live = cur.fetchone() is not None
     rtmp_base = os.environ.get("AUBEVIDEO_RTMP_URL", "rtmp://video.aubeetoilee.com/live")
     return render_template("live.html",
                            stream_key=u["stream_key"],
-                           rtmp_base=rtmp_base)
+                           rtmp_base=rtmp_base,
+                           is_live=is_live,
+                           live_url=url_for("live_watch", username=u["username"]))
 
 
 @app.route("/api/live/callback", methods=["POST"])
 def live_callback():
-    """Endpoint appelé par nginx-rtmp on_publish / on_publish_done."""
-    key = request.form.get("name", "")
+    """Appelé par nginx-rtmp (localhost uniquement) : on_publish / on_publish_done.
+
+    on_publish : `name` = clé secrète → on répond 301 Location: <username>,
+    nginx-rtmp renomme le flux ; le HLS public est /hls/<username>.m3u8 et la
+    clé n'apparaît jamais côté spectateurs.
+    on_publish_done : `name` peut être la clé ou le username → on gère les deux.
+    """
+    if request.remote_addr != "127.0.0.1":
+        abort(403)
+    name = request.form.get("name", "")
     action = request.form.get("call", "")  # publish / publish_done
+    if not name:
+        return "", 403
     with db_cursor(commit=True) as cur:
-        cur.execute("SELECT id FROM users WHERE stream_key = %s", (key,))
+        cur.execute(
+            "SELECT id, username, display_name FROM users"
+            " WHERE stream_key = %s OR username = %s",
+            (name, name),
+        )
         u = cur.fetchone()
         if not u:
             return "", 403
         if action == "publish":
-            cur.execute(
-                """INSERT INTO live_streams (user_id, title, status, started_at)
-                   VALUES (%s, %s, 'live', NOW())""",
-                (u["id"], "Direct AubeVideo"),
-            )
-        else:
+            # Un seul direct actif par chaîne : clore un éventuel orphelin.
             cur.execute(
                 """UPDATE live_streams SET status = 'ended', ended_at = NOW()
                    WHERE user_id = %s AND status = 'live'""",
                 (u["id"],),
             )
+            cur.execute(
+                """INSERT INTO live_streams (user_id, title, status, started_at)
+                   VALUES (%s, %s, 'live', NOW())""",
+                (u["id"], f"Direct de {u['display_name'] or u['username']}"),
+            )
+            cur.execute(
+                """INSERT INTO notifications (user_id, type, title, body, link)
+                   SELECT s.subscriber_id, 'live', %s, %s, %s
+                   FROM subscriptions s
+                   WHERE s.channel_id = %s AND s.notify = TRUE""",
+                (f"🔴 {u['display_name'] or u['username']} est en direct",
+                 "Rejoignez le direct maintenant",
+                 f"/live/{u['username']}", u["id"]),
+            )
+            app.logger.info("Live démarré : %s", u["username"])
+            if name != u["username"]:
+                resp = Response("", 301)
+                resp.headers["Location"] = u["username"]
+                return resp
+            return "", 200
+        cur.execute(
+            """UPDATE live_streams SET status = 'ended', ended_at = NOW()
+               WHERE user_id = %s AND status = 'live'""",
+            (u["id"],),
+        )
+        app.logger.info("Live terminé : %s", u["username"])
     return "", 200
+
+
+@app.route("/live/<username>")
+def live_watch(username):
+    """Page publique de visionnage du direct d'une chaîne."""
+    with db_cursor() as cur:
+        cur.execute(
+            """SELECT id, username, display_name, avatar_url, subscriber_count
+               FROM users WHERE LOWER(username) = LOWER(%s) AND is_banned = FALSE""",
+            (username,),
+        )
+        channel = cur.fetchone()
+        if not channel:
+            abort(404)
+        cur.execute(
+            """SELECT * FROM live_streams WHERE user_id = %s AND status = 'live'
+               ORDER BY started_at DESC LIMIT 1""",
+            (channel["id"],),
+        )
+        stream = cur.fetchone()
+        is_subscribed = False
+        uid = session.get("user_id")
+        if uid:
+            cur.execute(
+                "SELECT 1 FROM subscriptions WHERE subscriber_id = %s AND channel_id = %s",
+                (uid, channel["id"]),
+            )
+            is_subscribed = cur.fetchone() is not None
+    return render_template("live_watch.html",
+                           channel=channel,
+                           stream=stream,
+                           is_subscribed=is_subscribed,
+                           hls_url=f"/hls/{channel['username']}.m3u8")
+
+
+@app.route("/lives")
+def lives():
+    """Liste des chaînes actuellement en direct."""
+    with db_cursor() as cur:
+        cur.execute(
+            """SELECT ls.title, ls.started_at, u.username, u.display_name,
+                      u.avatar_url, u.subscriber_count
+               FROM live_streams ls JOIN users u ON ls.user_id = u.id
+               WHERE ls.status = 'live' AND u.is_banned = FALSE
+               ORDER BY ls.started_at DESC LIMIT 60"""
+        )
+        streams = cur.fetchall()
+    return render_template("lives.html", streams=streams)
 
 
 # ---------- GDPR export ----------

@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+{% block title %}En direct — AubeVideo{% endblock %}
+{% block content %}
+<h2 class="section-h">🔴 En direct maintenant</h2>
+{% if streams %}
+<div class="video-grid">
+  {% for s in streams %}
+  <a class="video-card" href="{{ url_for('live_watch', username=s.username) }}">
+    <div class="thumb-wrap" style="display:grid;place-items:center;background:var(--bg-elev)">
+      <span style="font-size:40px">📡</span>
+      <span class="duration" style="background:#d62b2b">EN DIRECT</span>
+    </div>
+    <div class="card-body">
+      <div class="channel-pic">
+        <img src="{{ s.avatar_url or url_for('static', filename='img/avatar-default.svg') }}" alt="">
+      </div>
+      <div class="meta">
+        <div class="card-title">{{ s.title }}</div>
+        <div class="card-channel">{{ s.display_name or s.username }}</div>
+        <div class="card-stats">démarré {{ s.started_at | timeago }}</div>
+      </div>
+    </div>
+  </a>
+  {% endfor %}
+</div>
+{% else %}
+<div style="text-align:center;padding:60px 20px">
+  <p style="font-size:42px;margin-bottom:8px">📡</p>
+  <h3>Personne n'est en direct pour le moment</h3>
+  <p class="subtitle">Lancez le vôtre depuis <a href="{{ url_for('live_dashboard') }}">Studio → Direct</a> avec OBS.</p>
+</div>
+{% endif %}
+{% endblock %}
