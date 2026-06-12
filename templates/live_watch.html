@@ -2,16 +2,18 @@
 {% block title %}🔴 Direct de {{ channel.display_name or channel.username }} — AubeVideo{% endblock %}
 {% block og_title %}🔴 {{ channel.display_name or channel.username }} est en direct sur AubeVideo{% endblock %}
 {% block content %}
-<div class="watch-layout" style="grid-template-columns:1fr">
+<div class="watch-layout{% if stream %} live-layout{% else %}" style="grid-template-columns:1fr{% endif %}">
   <div>
     {% if stream %}
     <div class="player-wrap" style="position:relative;aspect-ratio:16/9;background:#000;border-radius:12px;overflow:hidden">
       <video id="livePlayer" controls autoplay playsinline
              style="width:100%;height:100%;background:#000"></video>
-      <span style="position:absolute;top:12px;left:12px;background:#d62b2b;color:#fff;
+      <span id="liveBadge" style="position:absolute;top:12px;left:12px;background:#d62b2b;color:#fff;
                    font-weight:700;font-size:13px;padding:3px 10px;border-radius:6px">
         🔴 EN DIRECT
       </span>
+      <span id="liveViewers" style="position:absolute;top:12px;right:12px;background:rgba(0,0,0,.65);
+                   color:#fff;font-size:13px;padding:3px 10px;border-radius:6px;display:none"></span>
     </div>
     <h1 style="margin-top:14px">{{ stream.title }}</h1>
     <p class="subtitle">Direct démarré {{ stream.started_at | timeago }}</p>
@@ -40,6 +42,31 @@
       <a class="btn-login" href="{{ url_for('channel', username=channel.username) }}">Voir la chaîne</a>
     </div>
   </div>
+
+  {% if stream %}
+  <aside class="live-chat" id="liveChat"
+         data-channel="{{ channel.username }}"
+         data-owner="{{ channel.id }}"
+         data-me="{{ session.get('user_id') or '' }}"
+         data-admin="{{ '1' if is_admin else '' }}">
+    <div class="live-chat-head">
+      <span>💬 Discussion</span>
+      <span class="subtitle" id="chatViewers"></span>
+    </div>
+    <div class="live-chat-msgs" id="chatMsgs" aria-live="polite"></div>
+    {% if current_user %}
+    <form class="live-chat-form" id="chatForm" autocomplete="off">
+      <input id="chatInput" maxlength="300" placeholder="Écrire un message…">
+      <button type="submit" class="btn-primary">Envoyer</button>
+    </form>
+    {% else %}
+    <div class="live-chat-login">
+      <a href="{{ url_for('login') }}" style="color:var(--accent)">Connectez-vous</a>
+      pour participer à la discussion.
+    </div>
+    {% endif %}
+  </aside>
+  {% endif %}
 </div>
 {% endblock %}
 
@@ -66,6 +93,133 @@
     }
   }
   start();
+})();
+
+/* ---------- Chat du direct (poll 3 s, présence, modération) ---------- */
+(function () {
+  var root = document.getElementById('liveChat');
+  if (!root) return;
+  var msgs = document.getElementById('chatMsgs');
+  var channel = root.dataset.channel;
+  var owner = parseInt(root.dataset.owner, 10);
+  var me = parseInt(root.dataset.me || '0', 10);
+  var amAdmin = root.dataset.admin === '1';
+  var after = 0, seen = {}, ended = false;
+
+  // Jeton anonyme : permet de compter les spectateurs non connectés.
+  var tok = sessionStorage.getItem('av_live_t');
+  if (!tok) {
+    tok = Math.random().toString(36).slice(2) + Date.now().toString(36);
+    sessionStorage.setItem('av_live_t', tok);
+  }
+
+  function csrf() {
+    var m = document.querySelector('meta[name="csrf-token"]');
+    return m ? m.content : '';
+  }
+  function atBottom() {
+    return msgs.scrollHeight - msgs.scrollTop - msgs.clientHeight < 60;
+  }
+  function render(m) {
+    if (seen[m.id]) return;
+    seen[m.id] = true;
+    var stick = atBottom();
+    var div = document.createElement('div');
+    div.className = 'chat-msg';
+    div.dataset.id = m.id;
+    var a = document.createElement('span');
+    a.className = 'chat-author' + (m.user_id === owner ? ' chat-author-owner' : '');
+    a.textContent = m.author;
+    var b = document.createElement('span');
+    b.className = 'chat-body';
+    b.textContent = m.body;
+    div.appendChild(a);
+    div.appendChild(b);
+    if (me && (me === owner || amAdmin || me === m.user_id)) {
+      var x = document.createElement('button');
+      x.className = 'chat-del';
+      x.type = 'button';
+      x.title = 'Supprimer ce message';
+      x.textContent = '✕';
+      x.addEventListener('click', function () {
+        fetch('/api/live/chat/' + m.id, {
+          method: 'DELETE', headers: {'X-CSRF-Token': csrf()}
+        }).then(function (r) { if (r.ok) div.remove(); });
+      });
+      div.appendChild(x);
+    }
+    msgs.appendChild(div);
+    if (stick) msgs.scrollTop = msgs.scrollHeight;
+    while (msgs.children.length > 300) msgs.removeChild(msgs.firstChild);
+  }
+  function onEnded() {
+    ended = true;
+    var badge = document.getElementById('liveBadge');
+    if (badge) { badge.textContent = '⬛ DIRECT TERMINÉ'; badge.style.background = '#555'; }
+    var viewers = document.getElementById('liveViewers');
+    if (viewers) viewers.style.display = 'none';
+    var form = document.getElementById('chatForm');
+    if (form) form.remove();
+    var note = document.createElement('div');
+    note.className = 'live-chat-login';
+    note.textContent = 'Le direct est terminé. Merci d\'avoir participé !';
+    root.appendChild(note);
+  }
+  function poll() {
+    if (ended) return;
+    fetch('/api/live/' + encodeURIComponent(channel) + '/chat?after=' + after +
+          '&t=' + encodeURIComponent(tok))
+      .then(function (r) { return r.json(); })
+      .then(function (d) {
+        if (!d.live) { onEnded(); return; }
+        (d.messages || []).forEach(function (m) {
+          render(m);
+          if (m.id > after) after = m.id;
+        });
+        (d.deleted || []).forEach(function (id) {
+          var n = msgs.querySelector('[data-id="' + id + '"]');
+          if (n) n.remove();
+        });
+        var viewers = document.getElementById('liveViewers');
+        if (viewers) {
+          viewers.style.display = '';
+          viewers.textContent = '👁 ' + d.viewers + (d.viewers > 1 ? ' spectateurs' : ' spectateur');
+        }
+        var head = document.getElementById('chatViewers');
+        if (head) head.textContent = d.viewers + ' en ligne';
+      })
+      .catch(function () {})
+      .finally(function () { if (!ended) setTimeout(poll, 3000); });
+  }
+  var form = document.getElementById('chatForm');
+  if (form) {
+    form.addEventListener('submit', function (e) {
+      e.preventDefault();
+      var input = document.getElementById('chatInput');
+      var body = input.value.trim();
+      if (!body || ended) return;
+      input.value = '';
+      fetch('/api/live/' + encodeURIComponent(channel) + '/chat', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json', 'X-CSRF-Token': csrf()},
+        body: JSON.stringify({body: body})
+      }).then(function (r) {
+        if (r.status === 429) {
+          input.value = body;
+          if (window.uiToast) uiToast('Doucement ! Réessayez dans quelques secondes.');
+          return;
+        }
+        if (r.ok) {
+          // On affiche tout de suite, sans avancer `after` : le prochain poll
+          // récupère aussi les messages des autres arrivés entre-temps
+          // (déduplication par id via `seen`).
+          return r.json().then(render);
+        }
+      }).catch(function () { input.value = body; });
+      input.focus();
+    });
+  }
+  poll();
 })();
 </script>
 {% endif %}

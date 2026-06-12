@@ -24,6 +24,7 @@ from api_tokens import (
 import notify
 import totp
 import recommendations
+import live
 
 
 api_bp = Blueprint("api_v1", __name__, url_prefix="/api/v1")
@@ -1320,10 +1321,13 @@ def live_list():
         cur.execute(
             """SELECT ls.*, u.username, u.display_name, u.avatar_url, u.subscriber_count
                FROM live_streams ls JOIN users u ON ls.user_id = u.id
-               WHERE ls.status = 'live' ORDER BY ls.viewers DESC, ls.started_at DESC
+               WHERE ls.status = 'live' ORDER BY ls.started_at DESC
                LIMIT 60"""
         )
         rows = cur.fetchall()
+    for r in rows:
+        r["viewers"] = live.viewer_count(r["username"])
+    rows.sort(key=lambda r: r["viewers"], reverse=True)
     return jsonify([{
         "id": r["id"], "title": r["title"], "status": r["status"],
         "viewers": r["viewers"],
@@ -1335,6 +1339,41 @@ def live_list():
             "subscribers": r["subscriber_count"],
         },
     } for r in rows])
+
+
+@api_bp.route("/live/<username>/chat")
+@api_auth_optional
+def live_chat(username):
+    """Chat du direct : messages depuis ?after=<id> + spectateurs.
+
+    Le poll vaut présence (jeton anonyme `t` pour les non-connectés).
+    """
+    after = request.args.get("after", 0, type=int)
+    with db_cursor() as cur:
+        stream = live.get_active_stream(cur, username)
+        if not stream:
+            return jsonify({"live": False, "viewers": 0,
+                            "messages": [], "deleted": []})
+        messages, deleted = live.fetch_chat(cur, stream["id"], after)
+    who = g.user_id or request.args.get("t") or request.remote_addr or "anon"
+    viewers = live.touch_viewer(username, who)
+    return jsonify({"live": True, "viewers": viewers,
+                    "messages": messages, "deleted": deleted})
+
+
+@api_bp.route("/live/<username>/chat", methods=["POST"])
+@api_auth_required
+def live_chat_send(username):
+    data = request.get_json(silent=True) or {}
+    body = (data.get("body") or "").strip()
+    if not body or len(body) > live.CHAT_MAX_LEN:
+        return jsonify({"error": f"message vide ou trop long ({live.CHAT_MAX_LEN} max)"}), 400
+    with db_cursor(commit=True) as cur:
+        stream = live.get_active_stream(cur, username)
+        if not stream:
+            return jsonify({"error": "ce direct est terminé"}), 404
+        message = live.post_chat(cur, stream["id"], g.user_id, body)
+    return jsonify(message), 201
 
 
 # ============================================================

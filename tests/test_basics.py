@@ -11,6 +11,7 @@ def test_imports():
     import notify
     import analytics
     import cache
+    import live
     import totp
     import push
     import transcoding
@@ -48,9 +49,9 @@ def test_analytics_sparkline():
 
 
 def test_srt_to_vtt():
-    from app import _srt_to_vtt
+    from media import srt_to_vtt
     srt = "1\n00:00:01,000 --> 00:00:03,000\nHello\n"
-    vtt = _srt_to_vtt(srt)
+    vtt = srt_to_vtt(srt)
     assert "WEBVTT" in vtt
     assert "00:00:01.000 --> 00:00:03.000" in vtt
 
@@ -94,3 +95,23 @@ def test_login_requires_csrf_and_fails_on_bad_creds():
                                      "password": "faux", "_csrf": token})
         # Dev mode accepte tout (1) sinon 200 avec flash d'erreur
         assert r.status_code in (200, 302)
+
+
+def test_presence_counting():
+    """Comptage des spectateurs (fenêtre glissante, Redis ou mémoire)."""
+    import uuid
+    import cache
+    key = "test:presence:" + uuid.uuid4().hex
+    assert cache.presence_touch(key, "alice", window=30) == 1
+    assert cache.presence_touch(key, "bob", window=30) == 2
+    # Se re-signaler ne compte pas double
+    assert cache.presence_touch(key, "alice", window=30) == 2
+    assert cache.presence_count(key, window=30) == 2
+
+
+def test_live_chat_routes_registered():
+    from app import app
+    rules = {r.rule for r in app.url_map.iter_rules()}
+    assert "/api/live/<username>/chat" in rules          # web (session)
+    assert "/api/live/chat/<int:message_id>" in rules    # modération
+    assert "/api/v1/live/<username>/chat" in rules       # mobile (Bearer)

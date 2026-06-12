@@ -17,7 +17,7 @@
       <div class="meta">
         <div class="card-title">{{ s.title }}</div>
         <div class="card-channel">{{ s.display_name or s.username }}</div>
-        <div class="card-stats">démarré {{ s.started_at | timeago }}</div>
+        <div class="card-stats">démarré {{ s.started_at | timeago }}{% if s.viewers %} · 👁 {{ s.viewers }} spectateur{{ 's' if s.viewers > 1 }}{% endif %}</div>
       </div>
     </div>
   </a>

@@ -63,6 +63,49 @@ def delete(key):
     _mem.pop(key, None)
 
 
+def presence_touch(key, member, window=30):
+    """Marque `member` présent et renvoie le nombre de présents.
+
+    Fenêtre glissante : un membre compte tant qu'il s'est manifesté il y a
+    moins de `window` secondes (sorted set Redis, dict en fallback mémoire).
+    """
+    key = _PREFIX + key
+    now = time.time()
+    if _REDIS_OK:
+        try:
+            p = _r.pipeline()
+            p.zadd(key, {str(member): now})
+            p.zremrangebyscore(key, "-inf", now - window)
+            p.zcard(key)
+            p.expire(key, window * 2)
+            return p.execute()[2]
+        except Exception:
+            pass
+    with _lock:
+        ent = _mem.setdefault(key, {"v": {}, "exp": now + window * 2})
+        ent["v"] = {m: t for m, t in ent["v"].items() if t > now - window}
+        ent["v"][str(member)] = now
+        ent["exp"] = now + window * 2
+        return len(ent["v"])
+
+
+def presence_count(key, window=30):
+    """Nombre de présents, sans se marquer soi-même présent."""
+    key = _PREFIX + key
+    now = time.time()
+    if _REDIS_OK:
+        try:
+            _r.zremrangebyscore(key, "-inf", now - window)
+            return _r.zcard(key)
+        except Exception:
+            return 0
+    with _lock:
+        ent = _mem.get(key)
+        if not ent:
+            return 0
+        return sum(1 for t in ent["v"].values() if t > now - window)
+
+
 def cached(key_fn, ttl=60):
     def deco(f):
         def wrapper(*args, **kwargs):

@@ -208,7 +208,26 @@ Champs : `video` (fichier), `title`, `description`, `category`, `tags`,
 ## Live
 
 ### `GET /live`
-Streams actifs.
+Streams actifs (avec `viewers`, compte de spectateurs en temps réel).
+
+### `GET /live/{username}/chat?after={id}&t={token}`
+Chat du direct : messages publiés après l'id `after` + nombre de spectateurs.
+Auth facultative ; `t` = jeton anonyme côté client (sert au comptage des
+spectateurs). Le poll (toutes les ~3 s) vaut présence.
+
+```json
+{ "live": true, "viewers": 12,
+  "messages": [{ "id": 41, "user_id": 7, "author": "Nico", "body": "Salut !" }],
+  "deleted": [38] }
+```
+
+`live: false` si la chaîne n'est pas (ou plus) en direct. `deleted` liste les
+ids retirés par la modération depuis `after` (à enlever de l'affichage).
+
+### `POST /live/{username}/chat` 🔒
+Publier un message. Corps : `{ "body": "texte" }` (300 caractères max).
+Réponse `201` : le message sérialisé (comme ci-dessus). `404` si le direct
+est terminé.
 
 ## Pagination
 

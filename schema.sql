@@ -230,6 +230,17 @@ CREATE TABLE IF NOT EXISTS live_streams (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
+-- Chat du direct (messages liés à un live_stream, suppression douce pour modération)
+CREATE TABLE IF NOT EXISTS live_chat_messages (
+    id SERIAL PRIMARY KEY,
+    stream_id INTEGER NOT NULL REFERENCES live_streams(id) ON DELETE CASCADE,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    body VARCHAR(300) NOT NULL,
+    is_deleted BOOLEAN DEFAULT FALSE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_live_chat_stream ON live_chat_messages(stream_id, id);
+
 -- v3 : Tokens API (clients mobiles, intégrations)
 CREATE TABLE IF NOT EXISTS api_tokens (
     id SERIAL PRIMARY KEY,

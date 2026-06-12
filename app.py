@@ -49,6 +49,7 @@ from media import generate_thumbnail, probe_metadata, srt_to_vtt
 import notify
 import analytics
 import cache
+import live
 import totp
 import push
 import transcoding
@@ -2242,7 +2243,72 @@ def lives():
                ORDER BY ls.started_at DESC LIMIT 60"""
         )
         streams = cur.fetchall()
+    for s in streams:
+        s["viewers"] = live.viewer_count(s["username"])
     return render_template("lives.html", streams=streams)
+
+
+@app.route("/api/live/<username>/chat")
+def live_chat_poll(username):
+    """Poll du chat : messages depuis ?after=<id> + spectateurs.
+
+    Chaque poll sert de battement de présence : le spectateur (connecté ou
+    anonyme via le jeton `t` généré côté client) compte dans la fenêtre
+    glissante de 30 s. Aucun compte requis pour lire.
+    """
+    after = request.args.get("after", 0, type=int)
+    with db_cursor() as cur:
+        stream = live.get_active_stream(cur, username)
+        if not stream:
+            return jsonify({"live": False, "viewers": 0,
+                            "messages": [], "deleted": []})
+        messages, deleted = live.fetch_chat(cur, stream["id"], after)
+    who = session.get("user_id") or request.args.get("t") \
+        or request.remote_addr or "anon"
+    viewers = live.touch_viewer(username, who)
+    return jsonify({"live": True, "viewers": viewers,
+                    "messages": messages, "deleted": deleted})
+
+
+@app.route("/api/live/<username>/chat", methods=["POST"])
+@login_required
+@rate_limit(limit=10, window=20)
+def live_chat_post(username):
+    uid = session["user_id"]
+    data = request.get_json(silent=True) or {}
+    body = (data.get("body") or "").strip()
+    if not body or len(body) > live.CHAT_MAX_LEN:
+        return jsonify({"error": f"message vide ou trop long ({live.CHAT_MAX_LEN} max)"}), 400
+    with db_cursor(commit=True) as cur:
+        stream = live.get_active_stream(cur, username)
+        if not stream:
+            return jsonify({"error": "ce direct est terminé"}), 404
+        message = live.post_chat(cur, stream["id"], uid, body)
+    return jsonify(message), 201
+
+
+@app.route("/api/live/chat/<int:message_id>", methods=["DELETE"])
+@login_required
+def live_chat_delete(message_id):
+    """Modération : l'auteur, le propriétaire de la chaîne ou un admin."""
+    uid = session["user_id"]
+    with db_cursor(commit=True) as cur:
+        cur.execute(
+            """SELECT m.user_id AS author_id, ls.user_id AS channel_id
+               FROM live_chat_messages m JOIN live_streams ls ON m.stream_id = ls.id
+               WHERE m.id = %s""",
+            (message_id,),
+        )
+        m = cur.fetchone()
+        if not m:
+            return jsonify({"error": "message introuvable"}), 404
+        if uid not in (m["author_id"], m["channel_id"]) and not is_admin(uid):
+            return jsonify({"error": "non autorisé"}), 403
+        cur.execute(
+            "UPDATE live_chat_messages SET is_deleted = TRUE WHERE id = %s",
+            (message_id,),
+        )
+    return jsonify({"ok": True})
 
 
 # ---------- GDPR export ----------
